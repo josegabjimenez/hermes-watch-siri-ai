@@ -20,6 +20,16 @@ The project starts with a documented backend staging layer and API contract, the
 
 The generic Hermes webhook adapter remains useful for async ingestion/logging, but the Watch MVP should target the BFF because the Watch UI needs immediate feedback.
 
+## GitHub
+
+Public repository:
+
+```text
+https://github.com/josegabjimenez/hermes-watch-siri-ai
+```
+
+Default branch: `main`.
+
 ## Repository layout
 
 ```text
