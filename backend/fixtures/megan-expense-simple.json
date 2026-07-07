@@ -1,0 +1,54 @@
+{
+  "event_type": "mobile_capture.v1",
+  "schema": "com.jose.hermes.mobile_capture",
+  "schema_version": 1,
+  "request_id": "fixture-megan-expense-0001",
+  "created_at": "2026-07-06T20:55:00Z",
+  "source": {
+    "app": "HermesCapture",
+    "app_version": "0.1.0",
+    "platform": "watchOS",
+    "os_version": "10.x",
+    "device_id": "fixture-watch-device",
+    "locale": "es_CO",
+    "timezone": "America/Bogota",
+    "surface": "watch_app"
+  },
+  "route": {
+    "agent": "megan",
+    "intent": "expense",
+    "domain": "megan.expense_capture"
+  },
+  "capture": {
+    "modality": "watch_dictation",
+    "language": "es",
+    "text": "45 mil en Uber",
+    "raw_text": "45 mil en Uber"
+  },
+  "entities": {
+    "amount": null,
+    "currency": "COP",
+    "merchant": null,
+    "concept": null,
+    "account_hint": null,
+    "card_hint": null,
+    "tags": []
+  },
+  "context": {
+    "user_confirmation": false,
+    "watch_reachable_to_phone": true,
+    "shortcut_compatibility": false,
+    "requires_confirmation": false,
+    "dry_run": true,
+    "allow_write": false,
+    "allow_firefly_write": false
+  },
+  "delivery": {
+    "expect_response": true,
+    "response_preference": "short"
+  },
+  "client_state": {
+    "outbox_attempt": 0,
+    "client_sent_at": "2026-07-06T20:55:01Z"
+  }
+}

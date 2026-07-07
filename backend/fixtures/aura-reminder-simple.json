@@ -1,0 +1,49 @@
+{
+  "event_type": "mobile_capture.v1",
+  "schema": "com.jose.hermes.mobile_capture",
+  "schema_version": 1,
+  "request_id": "fixture-aura-reminder-0001",
+  "created_at": "2026-07-06T19:00:00-05:00",
+  "source": {
+    "app": "HermesCapture",
+    "app_version": "0.1.0",
+    "platform": "watchOS",
+    "os_version": "10.x",
+    "device_id": "fixture-watch-device",
+    "locale": "es_CO",
+    "timezone": "America/Bogota",
+    "surface": "watch_app"
+  },
+  "route": {
+    "agent": "aura",
+    "intent": "reminder",
+    "domain": "aura.reminder_capture"
+  },
+  "capture": {
+    "modality": "watch_dictation",
+    "language": "es",
+    "text": "recuérdame llamar a mamá mañana a las dos P.M.",
+    "raw_text": "recuérdame llamar a mamá mañana a las dos P.M."
+  },
+  "entities": {
+    "due_at": null,
+    "calendar_at": null,
+    "tags": []
+  },
+  "context": {
+    "user_confirmation": false,
+    "watch_reachable_to_phone": true,
+    "shortcut_compatibility": false,
+    "requires_confirmation": false,
+    "dry_run": true,
+    "allow_write": false
+  },
+  "delivery": {
+    "expect_response": true,
+    "response_preference": "short"
+  },
+  "client_state": {
+    "outbox_attempt": 0,
+    "client_sent_at": "2026-07-06T19:00:01-05:00"
+  }
+}

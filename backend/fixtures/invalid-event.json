@@ -1,0 +1,8 @@
+{
+  "event_type": "not_mobile_capture",
+  "schema_version": 1,
+  "request_id": "fixture-invalid-event-0001",
+  "capture": {
+    "text": "this should be ignored"
+  }
+}

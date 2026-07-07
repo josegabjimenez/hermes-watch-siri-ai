@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local runtime data
+backend/data/
+*.sqlite
+*.sqlite3
+*.db
+logs/
+*.log
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.xcconfig.local
+Secrets.*
+
+# macOS / Xcode local output
+.DS_Store
+DerivedData/
+build/
+*.xcuserdata/
+*.xcuserstate
+xcuserdata/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Node / web tooling if added later
+node_modules/
+dist/
+.next/
+coverage/
+
+# Private local notes
+.private/
