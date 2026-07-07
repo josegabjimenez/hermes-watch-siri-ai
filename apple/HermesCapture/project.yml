@@ -1,0 +1,58 @@
+name: HermesCapture
+options:
+  bundleIdPrefix: dev.josegabjimenez
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+  createIntermediateGroups: true
+packages:
+  HermesCore:
+    path: Packages/HermesCore
+targets:
+  HermesCaptureiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Apps/iOS
+      - path: Apps/Shared
+    dependencies:
+      - package: HermesCore
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture
+      INFOPLIST_KEY_CFBundleDisplayName: Hermes
+      INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+      INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+  HermesCaptureWatch:
+    type: application
+    platform: watchOS
+    deploymentTarget: "10.0"
+    sources:
+      - path: Apps/Watch
+      - path: Apps/Shared
+    dependencies:
+      - package: HermesCore
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture.watchkitapp
+      INFOPLIST_KEY_CFBundleDisplayName: Hermes
+      INFOPLIST_KEY_WKApplication: YES
+  HermesCoreTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Packages/HermesCore/Tests/HermesCoreTests
+    dependencies:
+      - package: HermesCore
+schemes:
+  HermesCaptureiOS:
+    build:
+      targets:
+        HermesCaptureiOS: all
+    test:
+      targets:
+        - HermesCoreTests
+  HermesCaptureWatch:
+    build:
+      targets:
+        HermesCaptureWatch: all

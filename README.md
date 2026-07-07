@@ -13,6 +13,7 @@ The project starts with a documented backend staging layer and API contract, the
 - HMAC V2 signing and idempotency ledger design.
 - Domain gates for Megan/Aura write-enabled actions.
 - Fable 5 review gates for important architecture/security/product decisions.
+- Initial XcodeGen + Swift Package scaffold under `apple/HermesCapture`.
 
 ## What “BFF” means here
 
@@ -33,6 +34,8 @@ Default branch: `main`.
 ## Repository layout
 
 ```text
+apple/HermesCapture/                    # XcodeGen + Swift Package scaffold
+
 backend/
   mobile_capture_staging_server.py       # local synchronous dry-run BFF
   mobile-capture-v1-webhook-prompt.md    # generic Hermes webhook prompt, log-only/no-write
@@ -53,6 +56,7 @@ docs/
   DECISION_LOG.md
   IMPLEMENTATION_TICKETS.md
   SUBAGENT_SYNTHESIS.md
+  XCODE_FOUNDATION_STATUS.md
   subagent-briefs/
 ```
 

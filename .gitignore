@@ -27,10 +27,14 @@ logs/
 *.xcconfig.local
 Secrets.*
 
-# macOS / Xcode local output
+# macOS / Xcode / SwiftPM local output
 .DS_Store
 DerivedData/
 build/
+.build/
+.swiftpm/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
 *.xcuserdata/
 *.xcuserstate
 xcuserdata/
