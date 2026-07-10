@@ -50,7 +50,7 @@ cd apple/HermesCapture/Packages/HermesCore
 swift test
 ```
 
-Expected test coverage:
+Expected Swift Testing coverage (`import Testing`):
 
 - payload JSON contract keys;
 - HMAC V2 known vector;
