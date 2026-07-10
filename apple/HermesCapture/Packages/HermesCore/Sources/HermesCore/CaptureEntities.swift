@@ -1,4 +1,4 @@
-import Foundation
+@preconcurrency import Foundation
 
 public struct CaptureAmount: Codable, Equatable, Sendable {
     public var value: Decimal

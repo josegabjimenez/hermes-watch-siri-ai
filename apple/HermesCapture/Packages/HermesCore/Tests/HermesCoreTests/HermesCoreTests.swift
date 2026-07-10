@@ -1,11 +1,8 @@
-import Foundation
-import Testing
+import XCTest
 @testable import HermesCore
 
-@Suite("HermesCore")
-struct HermesCoreTests {
-    @Test("Payload encoding uses mobile_capture.v1 contract keys")
-    func payloadEncodingUsesMobileCaptureContractKeys() throws {
+final class HermesCoreTests: XCTestCase {
+    func testPayloadEncodingUsesMobileCaptureContractKeys() throws {
         let payload = CapturePayloadV1(
             requestID: "unit-request-1",
             createdAt: "2026-07-06T20:55:00Z",
@@ -23,20 +20,19 @@ struct HermesCoreTests {
         )
 
         let data = try JSONEncoder.hermesCaptureEncoder().encode(payload)
-        let json = try #require(String(data: data, encoding: .utf8))
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
 
-        #expect(json.contains("\"event_type\":\"mobile_capture.v1\""))
-        #expect(json.contains("\"schema_version\":1"))
-        #expect(json.contains("\"request_id\":\"unit-request-1\""))
-        #expect(json.contains("\"app_version\":\"0.1.0\""))
-        #expect(json.contains("\"device_id\":\"unit-device\""))
-        #expect(json.contains("\"raw_text\":\"45 mil en Uber\""))
-        #expect(json.contains("\"dry_run\":true"))
-        #expect(json.contains("\"allow_write\":false"))
+        XCTAssertTrue(json.contains("\"event_type\":\"mobile_capture.v1\""))
+        XCTAssertTrue(json.contains("\"schema_version\":1"))
+        XCTAssertTrue(json.contains("\"request_id\":\"unit-request-1\""))
+        XCTAssertTrue(json.contains("\"app_version\":\"0.1.0\""))
+        XCTAssertTrue(json.contains("\"device_id\":\"unit-device\""))
+        XCTAssertTrue(json.contains("\"raw_text\":\"45 mil en Uber\""))
+        XCTAssertTrue(json.contains("\"dry_run\":true"))
+        XCTAssertTrue(json.contains("\"allow_write\":false"))
     }
 
-    @Test("HMAC V2 matches the known vector")
-    func hmacV2KnownVector() {
+    func testHMACV2KnownVector() {
         let body = Data(#"{"event_type":"mobile_capture.v1","request_id":"unit-test"}"#.utf8)
         let signature = HMACSigner.signatureV2(
             rawBody: body,
@@ -44,11 +40,10 @@ struct HermesCoreTests {
             secret: "test-secret"
         )
 
-        #expect(signature == "e824cb05567e5cae90d3eede3f35c5ca69fb2a8c1ced969456145a4f6b251aab")
+        XCTAssertEqual(signature, "e824cb05567e5cae90d3eede3f35c5ca69fb2a8c1ced969456145a4f6b251aab")
     }
 
-    @Test("Webhook request contains all required headers")
-    func webhookRequestContainsRequiredHeaders() throws {
+    func testWebhookRequestContainsRequiredHeaders() throws {
         let payload = CapturePayloadV1(
             requestID: "unit-request-2",
             createdAt: "2026-07-06T20:55:00Z",
@@ -65,7 +60,7 @@ struct HermesCoreTests {
                 text: "mañana a las dos llamar a mamá"
             )
         )
-        let endpoint = try #require(URL(string: "https://example.invalid/webhooks/mobile-capture-v1"))
+        let endpoint = try XCTUnwrap(URL(string: "https://example.invalid/webhooks/mobile-capture-v1"))
         let client = WebhookClient(endpoint: endpoint)
         let request = try client.makeRequest(
             payload: payload,
@@ -73,16 +68,15 @@ struct HermesCoreTests {
             timestamp: "1700000000"
         )
 
-        #expect(request.httpMethod == "POST")
-        #expect(request.value(forHTTPHeaderField: WebhookHeaders.timestamp) == "1700000000")
-        #expect(request.value(forHTTPHeaderField: WebhookHeaders.signatureV2) != nil)
-        #expect(request.value(forHTTPHeaderField: WebhookHeaders.requestID) == "unit-request-2")
-        #expect(request.value(forHTTPHeaderField: WebhookHeaders.payloadVersion) == "1")
-        #expect(request.value(forHTTPHeaderField: WebhookHeaders.deviceID) == "unit-device")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.value(forHTTPHeaderField: WebhookHeaders.timestamp), "1700000000")
+        XCTAssertNotNil(request.value(forHTTPHeaderField: WebhookHeaders.signatureV2))
+        XCTAssertEqual(request.value(forHTTPHeaderField: WebhookHeaders.requestID), "unit-request-2")
+        XCTAssertEqual(request.value(forHTTPHeaderField: WebhookHeaders.payloadVersion), "1")
+        XCTAssertEqual(request.value(forHTTPHeaderField: WebhookHeaders.deviceID), "unit-device")
     }
 
-    @Test("Capture factory creates dry-run payload")
-    func captureFactoryCreatesDryRunPayload() {
+    func testCaptureFactoryCreatesDryRunPayload() {
         let factory = CaptureFactory(
             appVersion: "0.1.0",
             platform: "watchOS",
@@ -98,9 +92,9 @@ struct HermesCoreTests {
             text: "agrega leche al mercado"
         )
 
-        #expect(payload.requestID == "factory-request")
-        #expect(payload.route.domain == .auraGroceryCapture)
-        #expect(payload.context.dryRun == true)
-        #expect(payload.context.allowWrite == false)
+        XCTAssertEqual(payload.requestID, "factory-request")
+        XCTAssertEqual(payload.route.domain, .auraGroceryCapture)
+        XCTAssertEqual(payload.context.dryRun, true)
+        XCTAssertEqual(payload.context.allowWrite, false)
     }
 }
