@@ -10,14 +10,6 @@
       }
     },
     {
-      "identity" : "swift-corelibs-xctest",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-corelibs-xctest.git",
-      "state" : {
-        "revision" : "aba63a74270b094db00c40182f8774afbe2a91e9"
-      }
-    },
-    {
       "identity" : "swift-crypto",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-crypto.git",

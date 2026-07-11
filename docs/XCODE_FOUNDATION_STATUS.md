@@ -50,7 +50,7 @@ cd apple/HermesCapture/Packages/HermesCore
 swift test
 ```
 
-Expected XCTest coverage. `Package.swift` supplies `swift-corelibs-xctest` explicitly because standalone Swift toolchains on macOS may omit the XCTest module even when the compiler is Swift 6+:
+Expected XCTest coverage. On macOS, run SwiftPM with the Xcode-selected toolchain (`xcrun swift test`). Standalone Swift.org/Homebrew toolchains may omit Apple's XCTest/Testing modules and are not the supported Apple-app validation path:
 
 - payload JSON contract keys;
 - HMAC V2 known vector;
