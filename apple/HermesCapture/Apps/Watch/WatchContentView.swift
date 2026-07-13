@@ -7,9 +7,8 @@ struct WatchContentView: View {
     var body: some View {
         NavigationStack {
             List(actions) { action in
-                Button {
-                    // Next implementation step: present system dictation/text input,
-                    // enqueue payload locally, sign with HMAC V2, then submit to BFF.
+                NavigationLink {
+                    WatchCaptureView(action: action)
                 } label: {
                     Label(action.title, systemImage: action.symbolName)
                 }

@@ -14,6 +14,7 @@ The project starts with a documented backend staging layer and API contract, the
 - Domain gates for Megan/Aura write-enabled actions.
 - Fable 5 review gates for important architecture/security/product decisions.
 - Initial XcodeGen + Swift Package scaffold under `apple/HermesCapture`.
+- Watch system text-entry/dictation flow with local file-backed outbox.
 
 ## What “BFF” means here
 
@@ -57,6 +58,7 @@ docs/
   IMPLEMENTATION_TICKETS.md
   SUBAGENT_SYNTHESIS.md
   XCODE_FOUNDATION_STATUS.md
+  WATCH_OUTBOX_CAPTURE_STATUS.md
   subagent-briefs/
 ```
 

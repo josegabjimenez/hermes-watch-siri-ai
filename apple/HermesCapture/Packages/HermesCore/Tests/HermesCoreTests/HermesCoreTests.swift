@@ -97,4 +97,43 @@ final class HermesCoreTests: XCTestCase {
         XCTAssertEqual(payload.context.dryRun, true)
         XCTAssertEqual(payload.context.allowWrite, false)
     }
+
+    func testFileOutboxPersistsAndDeduplicatesRequestID() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directory.appendingPathComponent("outbox.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let payload = CapturePayloadV1(
+            requestID: "outbox-request-1",
+            createdAt: "2026-07-13T20:00:00Z",
+            source: CaptureSource(
+                appVersion: "0.1.0",
+                platform: "watchOS",
+                osVersion: "26.5",
+                deviceID: "unit-device",
+                surface: "watch_app"
+            ),
+            route: .expense,
+            capture: CaptureText(modality: "watch_dictation", text: "45 mil en Uber")
+        )
+        let store = FileOutboxStore(fileURL: fileURL)
+
+        let first = try await store.enqueue(payload, now: payload.createdAt)
+        let duplicate = try await store.enqueue(payload, now: payload.createdAt)
+        var items = try await store.loadAll()
+
+        XCTAssertEqual(first.id, "outbox-request-1")
+        XCTAssertEqual(duplicate.id, first.id)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.status, .pending)
+
+        try await store.markSending(requestID: payload.requestID, now: "2026-07-13T20:00:01Z")
+        try await store.markSent(requestID: payload.requestID, now: "2026-07-13T20:00:02Z")
+        items = try await store.loadAll()
+
+        XCTAssertEqual(items.first?.status, .sent)
+        XCTAssertEqual(items.first?.attempts, 1)
+        XCTAssertNil(items.first?.lastError)
+    }
 }
