@@ -18,6 +18,8 @@ targets:
       - path: Apps/Shared
     dependencies:
       - package: HermesCore
+      - target: HermesCaptureWatch
+        embed: true
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture
       GENERATE_INFOPLIST_FILE: YES
@@ -38,6 +40,8 @@ targets:
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_WKApplication: YES
+      INFOPLIST_KEY_WKCompanionAppBundleIdentifier: dev.josegabjimenez.HermesCapture
+      INFOPLIST_KEY_WKWatchOnly: NO
   HermesCoreTests:
     type: bundle.unit-test
     platform: iOS
