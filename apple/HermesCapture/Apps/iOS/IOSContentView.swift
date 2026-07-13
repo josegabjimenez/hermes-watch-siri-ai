@@ -2,29 +2,158 @@ import SwiftUI
 import HermesCore
 
 struct IOSContentView: View {
-    @State private var endpoint = "https://<TAILSCALE_DNS_NAME>:8650"
+    @AppStorage("hermes.baseURL") private var savedBaseURL = ""
+    @State private var endpointInput = ""
+    @State private var secretInput = ""
+    @State private var secretConfigured = false
+    @State private var statusMessage: String?
+    @State private var isSaving = false
+    @State private var isTesting = false
+
+    private let secretStore = KeychainRouteSecretStore()
+    private let accent = Color(red: 187 / 255, green: 0, blue: 14 / 255)
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("BFF endpoint") {
-                    TextField("Base URL", text: $endpoint)
+                Section("BFF por Tailscale") {
+                    TextField("https://<TAILSCALE_DNS_NAME>:8650", text: $endpointInput)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Text("Use a tailnet-only HTTPS endpoint during development. Store the route secret in Keychain, not in source or UserDefaults.")
+                        .keyboardType(.URL)
+
+                    Button {
+                        Task { @MainActor in
+                            await testConnection()
+                        }
+                    } label: {
+                        if isTesting {
+                            ProgressView()
+                        } else {
+                            Label("Probar conexión", systemImage: "network")
+                        }
+                    }
+                    .disabled(endpointInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isTesting)
+                }
+
+                Section("Autenticación") {
+                    SecureField("Secreto HMAC de la ruta", text: $secretInput)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+
+                    HStack {
+                        Label(
+                            secretConfigured ? "Secreto configurado" : "Secreto pendiente",
+                            systemImage: secretConfigured ? "checkmark.shield" : "exclamationmark.shield"
+                        )
+                        .foregroundStyle(secretConfigured ? .green : .secondary)
+                        Spacer()
+                    }
+
+                    Button {
+                        Task { @MainActor in
+                            await saveConfiguration()
+                        }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Label("Guardar configuración", systemImage: "lock.shield")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent)
+                    .disabled(isSaving)
+                }
+
+                Section("Siguiente sincronización") {
+                    Label("Endpoint → Watch", systemImage: "applewatch")
+                    Label("Secreto → Keychain del Watch", systemImage: "key.horizontal")
+                    Text("La sincronización con WatchConnectivity se habilitará en la siguiente fase. No pegues el secreto en código, logs o capturas públicas.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Watch-first MVP") {
-                    Label("Configure endpoint + secret on iPhone", systemImage: "iphone")
-                    Label("Sync config to Watch", systemImage: "applewatch")
-                    Label("Keep captures dry-run until Fable 5 gates pass", systemImage: "lock.shield")
+                if let statusMessage {
+                    Section("Estado") {
+                        Text(statusMessage)
+                    }
                 }
             }
             .navigationTitle("Hermes Capture")
+            .onAppear {
+                endpointInput = savedBaseURL
+                Task { @MainActor in
+                    await refreshSecretStatus()
+                }
+            }
         }
     }
+
+    @MainActor
+    private func saveConfiguration() async {
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            let baseURL = try EndpointValidator.normalizedBaseURL(from: endpointInput)
+            let secret = secretInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !secret.isEmpty else {
+                statusMessage = "Ingresa el secreto HMAC"
+                return
+            }
+
+            try await secretStore.saveRouteSecret(secret)
+            savedBaseURL = baseURL.absoluteString
+            endpointInput = baseURL.absoluteString
+            secretInput = ""
+            secretConfigured = true
+            statusMessage = "Configuración guardada localmente"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func testConnection() async {
+        isTesting = true
+        defer { isTesting = false }
+
+        do {
+            let baseURL = try EndpointValidator.normalizedBaseURL(from: endpointInput)
+            let healthURL = EndpointValidator.healthURL(from: baseURL)
+            let (data, response) = try await URLSession.shared.data(from: healthURL)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                statusMessage = "Respuesta HTTP inválida"
+                return
+            }
+            guard (200..<300).contains(httpResponse.statusCode) else {
+                statusMessage = "Health respondió HTTP \(httpResponse.statusCode)"
+                return
+            }
+
+            let health = try? JSONDecoder().decode(BFFHealthResponse.self, from: data)
+            statusMessage = health.map { "Conectado · \($0.mode ?? $0.status)" } ?? "Conectado · HTTP \(httpResponse.statusCode)"
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func refreshSecretStatus() async {
+        do {
+            secretConfigured = try await secretStore.loadRouteSecret() != nil
+        } catch {
+            secretConfigured = false
+            statusMessage = "No se pudo leer Keychain"
+        }
+    }
+}
+
+private struct BFFHealthResponse: Decodable {
+    let status: String
+    let service: String?
+    let mode: String?
 }
 
 #Preview {

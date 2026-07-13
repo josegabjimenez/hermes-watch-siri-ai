@@ -136,4 +136,21 @@ final class HermesCoreTests: XCTestCase {
         XCTAssertEqual(items.first?.attempts, 1)
         XCTAssertNil(items.first?.lastError)
     }
+
+    func testEndpointValidatorRequiresHTTPSAndBuildsHealthURL() throws {
+        let baseURL = try EndpointValidator.normalizedBaseURL(
+            from: "  https://example.ts.net:8650/  "
+        )
+
+        XCTAssertEqual(baseURL.absoluteString, "https://example.ts.net:8650")
+        XCTAssertEqual(
+            EndpointValidator.healthURL(from: baseURL).absoluteString,
+            "https://example.ts.net:8650/health"
+        )
+        XCTAssertThrowsError(
+            try EndpointValidator.normalizedBaseURL(from: "http://example.ts.net:8650")
+        ) { error in
+            XCTAssertEqual(error as? EndpointValidationError, .httpsRequired)
+        }
+    }
 }
