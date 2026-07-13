@@ -1,6 +1,6 @@
 # Xcode foundation status
 
-**Status:** scaffolded from Linux; must be generated and compiled on Jose's Mac with Xcode.
+**Status:** HermesCore verified on Jose's Mac with the Xcode toolchain; iOS/watchOS app targets still need generation and device/simulator builds.
 
 ## Added
 
@@ -47,7 +47,7 @@ open HermesCapture.xcodeproj
 
 ```bash
 cd apple/HermesCapture/Packages/HermesCore
-swift test
+xcrun swift test
 ```
 
 Expected XCTest coverage. On macOS, run SwiftPM with the Xcode-selected toolchain (`xcrun swift test`). Standalone Swift.org/Homebrew toolchains may omit Apple's XCTest/Testing modules and are not the supported Apple-app validation path:
@@ -57,9 +57,28 @@ Expected XCTest coverage. On macOS, run SwiftPM with the Xcode-selected toolchai
 - required webhook headers;
 - dry-run quick-action payload factory.
 
-## Linux verification performed
+### Verified result — Jose's Mac
 
-This environment does not have Swift/Xcode installed, so the Apple scaffold could not be compiled here. Verification performed instead:
+Verified on 2026-07-13 using:
+
+```text
+XcodeDefault toolchain
+Apple Swift 6.3.3
+Target: arm64-apple-macosx26.0
+```
+
+Result:
+
+```text
+Build complete! (24.80s)
+Executed 4 tests, with 0 failures (0 unexpected)
+```
+
+The trailing Swift Testing line reporting `0 tests in 0 suites` is a separate runner; the four XCTest cases above it are the authoritative HermesCore result.
+
+## Additional Linux verification
+
+The package was also exercised in Swift 5.10/6.0 Linux containers during toolchain troubleshooting. Additional verification includes:
 
 - Python backend tests still pass.
 - Python `py_compile` passes for backend files.
@@ -70,10 +89,9 @@ This environment does not have Swift/Xcode installed, so the Apple scaffold coul
 On Mac/Xcode:
 
 1. Generate Xcode project.
-2. Run `swift test` for `HermesCore`.
-3. Build iOS target.
-4. Build watchOS target.
-5. Implement real dictation flow in `WatchContentView`:
+2. Build iOS target.
+3. Build watchOS target.
+4. Implement real dictation flow in `WatchContentView`:
    - present system text input;
    - create `CapturePayloadV1`;
    - enqueue before network;
