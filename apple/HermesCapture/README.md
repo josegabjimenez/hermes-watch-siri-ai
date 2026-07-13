@@ -21,6 +21,15 @@ xcodegen generate
 open HermesCapture.xcodeproj
 ```
 
+After every `project.yml` change, close/reopen Xcode after regenerating the project:
+
+```bash
+xcodegen generate
+open HermesCapture.xcodeproj
+```
+
+The app and test targets use `GENERATE_INFOPLIST_FILE: YES`; do not add a source-controlled plist unless a later entitlement or privacy requirement needs one explicitly.
+
 ## Build target direction
 
 - iOS app: configuration, endpoint, Keychain bootstrap, history/debug, WatchConnectivity fallback.
