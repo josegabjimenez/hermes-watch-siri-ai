@@ -52,6 +52,8 @@ Reachable inside Jose's tailnet at:
 https://<TAILSCALE_DNS_NAME>:8650
 ```
 
+Use the MagicDNS hostname, **not** the `100.x.y.z` Tailscale IP. Tailscale Serve's TLS certificate is issued for the DNS name; connecting by IP causes hostname validation to fail in `URLSession`.
+
 Health:
 
 ```http
@@ -106,6 +108,8 @@ https://<TAILSCALE_DNS_NAME>:8650/
 └── proxy http://127.0.0.1:8650
 ```
 
+The local BFF is supervised by an enabled host service with automatic restart on failure. A Serve `502` means the local `127.0.0.1:8650` upstream is unavailable and should be checked before debugging the Apple client.
+
 Existing services preserved:
 
 ```text
@@ -125,8 +129,10 @@ tailscale serve --https=8650 off
 
 This endpoint is **tailnet-only**. The iPhone/Mac used for development must be connected to Jose's Tailscale tailnet. Physical Apple Watch reachability must be tested because watchOS network behavior can differ depending on whether it is relaying through the paired iPhone, on Wi-Fi, or away from the phone.
 
-For MVP development, use this endpoint in the iOS/watchOS app config:
+For MVP development, use this **base URL** in the iPhone configuration screen:
 
 ```text
-https://<TAILSCALE_DNS_NAME>:8650/webhooks/mobile-capture-v1
+https://<TAILSCALE_DNS_NAME>:8650
 ```
+
+The sender will append `/webhooks/mobile-capture-v1`; the health test appends `/health`.

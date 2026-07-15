@@ -8,6 +8,7 @@ The iPhone companion now provides:
 
 - tailnet BFF base URL input;
 - strict HTTPS validation;
+- rejection of raw IP endpoints because Tailscale Serve certificates are hostname-bound;
 - `/health` connection test;
 - route-scoped HMAC secret entry;
 - Keychain storage using `kSecClassGenericPassword`;

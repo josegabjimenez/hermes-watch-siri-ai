@@ -5,6 +5,7 @@ public enum EndpointValidationError: Error, Equatable, LocalizedError, Sendable 
     case invalidURL
     case httpsRequired
     case hostRequired
+    case dnsNameRequired
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ public enum EndpointValidationError: Error, Equatable, LocalizedError, Sendable 
             return "El endpoint debe usar HTTPS"
         case .hostRequired:
             return "El endpoint debe incluir un host"
+        case .dnsNameRequired:
+            return "Usa el nombre DNS de Tailscale, no la IP; el certificado TLS está emitido para el hostname"
         }
     }
 }
@@ -35,6 +38,9 @@ public enum EndpointValidator {
         guard let host = components.host, !host.isEmpty else {
             throw EndpointValidationError.hostRequired
         }
+        guard !isIPAddress(host) else {
+            throw EndpointValidationError.dnsNameRequired
+        }
 
         components.scheme = "https"
         components.path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -52,5 +58,19 @@ public enum EndpointValidator {
 
     public static func healthURL(from baseURL: URL) -> URL {
         baseURL.appendingPathComponent("health")
+    }
+
+    private static func isIPAddress(_ host: String) -> Bool {
+        if host.contains(":") {
+            return true
+        }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else {
+            return false
+        }
+        return parts.allSatisfy { part in
+            guard let value = Int(part) else { return false }
+            return (0...255).contains(value)
+        }
     }
 }

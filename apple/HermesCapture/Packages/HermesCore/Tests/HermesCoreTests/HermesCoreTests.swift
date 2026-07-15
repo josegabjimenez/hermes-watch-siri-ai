@@ -152,5 +152,10 @@ final class HermesCoreTests: XCTestCase {
         ) { error in
             XCTAssertEqual(error as? EndpointValidationError, .httpsRequired)
         }
+        XCTAssertThrowsError(
+            try EndpointValidator.normalizedBaseURL(from: "https://100.64.0.1:8650")
+        ) { error in
+            XCTAssertEqual(error as? EndpointValidationError, .dnsNameRequired)
+        }
     }
 }
