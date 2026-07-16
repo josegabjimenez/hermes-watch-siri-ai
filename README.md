@@ -17,6 +17,7 @@ The project starts with a documented backend staging layer and API contract, the
 - Watch system text-entry/dictation flow with local file-backed outbox.
 - iPhone HTTPS endpoint configuration, health check, and route secret in Keychain.
 - User-initiated WatchConnectivity bootstrap into Watch Keychain.
+- End-to-end Watch outbox delivery to the synchronous BFF in dry-run mode.
 
 ## What “BFF” means here
 
@@ -63,6 +64,7 @@ docs/
   WATCH_OUTBOX_CAPTURE_STATUS.md
   IPHONE_SECURE_CONFIGURATION_STATUS.md
   WATCH_CONNECTIVITY_BOOTSTRAP_STATUS.md
+  WATCH_E2E_DRY_RUN_STATUS.md
   subagent-briefs/
 ```
 

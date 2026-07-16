@@ -71,6 +71,14 @@ public actor FileOutboxStore {
         return try decoder.decode([OutboxItem].self, from: data)
     }
 
+    public func loadDeliverable(maxAttempts: Int = 5, limit: Int = 10) throws -> [OutboxItem] {
+        Array(
+            try loadAll()
+                .filter { $0.status != .sent && $0.attempts < maxAttempts }
+                .prefix(limit)
+        )
+    }
+
     public func markSending(requestID: String, now: String) throws {
         try update(requestID: requestID, now: now) { item in
             item.status = .sending

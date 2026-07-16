@@ -25,14 +25,14 @@ struct WatchCaptureView: View {
 
                 Button {
                     Task { @MainActor in
-                        await saveToOutbox()
+                        await saveAndSend()
                     }
                 } label: {
                     if isSaving {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                     } else {
-                        Label("Guardar", systemImage: "tray.and.arrow.down")
+                        Label("Enviar", systemImage: "paperplane.fill")
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -72,7 +72,7 @@ struct WatchCaptureView: View {
     }
 
     @MainActor
-    private func saveToOutbox() async {
+    private func saveAndSend() async {
         guard !trimmedText.isEmpty else { return }
         ensureDeviceIdentity()
         isSaving = true
@@ -100,8 +100,37 @@ struct WatchCaptureView: View {
         do {
             _ = try await outbox.enqueue(payload, now: payload.createdAt)
             text = ""
-            statusMessage = "Guardado en outbox · dry-run"
+            statusMessage = "Enviando · dry-run"
+
+            guard
+                let rawBaseURL = UserDefaults.standard.string(forKey: "hermes.baseURL"),
+                let baseURL = try? EndpointValidator.normalizedBaseURL(from: rawBaseURL),
+                let secret = try KeychainRouteSecretStore().loadRouteSecretSynchronously(),
+                !secret.isEmpty
+            else {
+                statusMessage = "Guardado · configura desde iPhone"
+                WKInterfaceDevice.current().play(.notification)
+                isSaving = false
+                return
+            }
+
+            let client = WebhookClient(
+                endpoint: EndpointValidator.captureURL(from: baseURL)
+            )
+            let delivery = OutboxDeliveryService(
+                store: outbox,
+                client: client
+            )
+            let response = try await delivery.deliver(
+                payload: payload,
+                secret: secret
+            )
+
+            statusMessage = response.displayMessage ?? "Enviado · dry-run"
             WKInterfaceDevice.current().play(.success)
+        } catch let failure as OutboxDeliveryFailure {
+            statusMessage = failure.localizedDescription
+            WKInterfaceDevice.current().play(.failure)
         } catch {
             statusMessage = "No se pudo guardar"
             WKInterfaceDevice.current().play(.failure)
