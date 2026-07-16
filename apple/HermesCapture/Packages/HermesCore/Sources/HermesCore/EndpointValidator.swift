@@ -60,6 +60,12 @@ public enum EndpointValidator {
         baseURL.appendingPathComponent("health")
     }
 
+    public static func captureURL(from baseURL: URL) -> URL {
+        baseURL
+            .appendingPathComponent("webhooks")
+            .appendingPathComponent("mobile-capture-v1")
+    }
+
     private static func isIPAddress(_ host: String) -> Bool {
         if host.contains(":") {
             return true

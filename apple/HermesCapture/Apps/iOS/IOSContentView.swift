@@ -3,12 +3,14 @@ import HermesCore
 
 struct IOSContentView: View {
     @AppStorage("hermes.baseURL") private var savedBaseURL = ""
+    @AppStorage("hermes.pseudonymousDeviceID") private var deviceID = ""
     @State private var endpointInput = ""
     @State private var secretInput = ""
     @State private var secretConfigured = false
     @State private var statusMessage: String?
     @State private var isSaving = false
     @State private var isTesting = false
+    @State private var isTestingHMAC = false
 
     private let secretStore = KeychainRouteSecretStore()
     private let accent = Color(red: 187 / 255, green: 0, blue: 14 / 255)
@@ -64,6 +66,19 @@ struct IOSContentView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(accent)
                     .disabled(isSaving)
+
+                    Button {
+                        Task { @MainActor in
+                            await testHMAC()
+                        }
+                    } label: {
+                        if isTestingHMAC {
+                            ProgressView()
+                        } else {
+                            Label("Probar HMAC", systemImage: "checkmark.shield")
+                        }
+                    }
+                    .disabled(!secretConfigured || savedBaseURL.isEmpty || isTestingHMAC)
                 }
 
                 Section("Siguiente sincronización") {
@@ -82,6 +97,7 @@ struct IOSContentView: View {
             }
             .navigationTitle("Hermes Capture")
             .onAppear {
+                ensureDeviceIdentity()
                 endpointInput = savedBaseURL
                 Task { @MainActor in
                     await refreshSecretStatus()
@@ -140,12 +156,71 @@ struct IOSContentView: View {
     }
 
     @MainActor
+    private func testHMAC() async {
+        isTestingHMAC = true
+        defer { isTestingHMAC = false }
+
+        do {
+            guard let secret = try await secretStore.loadRouteSecret(), !secret.isEmpty else {
+                secretConfigured = false
+                statusMessage = "Guarda primero el secreto HMAC"
+                return
+            }
+
+            ensureDeviceIdentity()
+            let baseURL = try EndpointValidator.normalizedBaseURL(from: savedBaseURL)
+            let factory = CaptureFactory(
+                appVersion: appVersion,
+                platform: "iOS",
+                osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+                deviceID: deviceID,
+                surface: "iphone_app",
+                nowISO8601: { ISO8601DateFormatter().string(from: Date()) },
+                makeRequestID: { UUID().uuidString.lowercased() }
+            )
+            let payload = factory.makePayload(
+                kind: .general,
+                text: "HermesCapture HMAC connectivity check"
+            )
+            let client = WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
+            let response = try await client.submit(payload: payload, secret: secret)
+
+            guard response.dryRun == true, response.plan?.wouldWrite != true else {
+                statusMessage = "Respuesta insegura: se esperaba dry-run"
+                return
+            }
+            statusMessage = "HMAC válido · dry-run"
+        } catch let error as WebhookClientError {
+            switch error {
+            case .unacceptableStatus(let statusCode, _) where statusCode == 401:
+                statusMessage = "HMAC rechazado · verifica que coincida con el servidor"
+            case .unacceptableStatus(let statusCode, _):
+                statusMessage = "Prueba HMAC respondió HTTP \(statusCode)"
+            case .invalidHTTPResponse:
+                statusMessage = "Respuesta HTTP inválida"
+            }
+        } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
     private func refreshSecretStatus() async {
         do {
             secretConfigured = try await secretStore.loadRouteSecret() != nil
         } catch {
             secretConfigured = false
             statusMessage = "No se pudo leer Keychain"
+        }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
+    }
+
+    private func ensureDeviceIdentity() {
+        if deviceID.isEmpty {
+            deviceID = "iphone-\(UUID().uuidString.lowercased())"
         }
     }
 }

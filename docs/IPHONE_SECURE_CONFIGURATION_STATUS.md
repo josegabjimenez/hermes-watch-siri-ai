@@ -13,6 +13,7 @@ The iPhone companion now provides:
 - route-scoped HMAC secret entry;
 - Keychain storage using `kSecClassGenericPassword`;
 - local indicator showing whether a secret is configured.
+- signed dry-run **Probar HMAC** request against `/webhooks/mobile-capture-v1`.
 
 ## Storage policy
 
@@ -46,6 +47,8 @@ The secret is never written to:
 
 The UI clears the secret field immediately after saving.
 
+The client secret must exactly match the BFF route secret. It is not an arbitrary password. Generate a new random value only as a coordinated server + client rotation; changing one side alone produces HTTP `401`.
+
 ## Health test
 
 The connection test calls:
@@ -69,3 +72,4 @@ The iPhone Keychain and Watch Keychain are separate. This phase does **not** syn
 5. Tap **Guardar configuración**.
 6. Confirm **Secreto configurado** and an empty secret field.
 7. Relaunch the app and confirm the configured indicator remains.
+8. Tap **Probar HMAC** and confirm `HMAC válido · dry-run`.

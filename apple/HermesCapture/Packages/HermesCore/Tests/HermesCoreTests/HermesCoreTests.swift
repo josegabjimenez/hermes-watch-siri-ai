@@ -147,6 +147,10 @@ final class HermesCoreTests: XCTestCase {
             EndpointValidator.healthURL(from: baseURL).absoluteString,
             "https://example.ts.net:8650/health"
         )
+        XCTAssertEqual(
+            EndpointValidator.captureURL(from: baseURL).absoluteString,
+            "https://example.ts.net:8650/webhooks/mobile-capture-v1"
+        )
         XCTAssertThrowsError(
             try EndpointValidator.normalizedBaseURL(from: "http://example.ts.net:8650")
         ) { error in
