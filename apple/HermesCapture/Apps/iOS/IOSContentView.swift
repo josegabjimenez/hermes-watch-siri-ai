@@ -2,6 +2,8 @@ import SwiftUI
 import HermesCore
 
 struct IOSContentView: View {
+    @StateObject private var watchBootstrap = IPhoneWatchBootstrapCoordinator()
+
     @AppStorage("hermes.baseURL") private var savedBaseURL = ""
     @AppStorage("hermes.pseudonymousDeviceID") private var deviceID = ""
     @State private var endpointInput = ""
@@ -11,6 +13,7 @@ struct IOSContentView: View {
     @State private var isSaving = false
     @State private var isTesting = false
     @State private var isTestingHMAC = false
+    @State private var isSendingToWatch = false
 
     private let secretStore = KeychainRouteSecretStore()
     private let accent = Color(red: 187 / 255, green: 0, blue: 14 / 255)
@@ -81,10 +84,27 @@ struct IOSContentView: View {
                     .disabled(!secretConfigured || savedBaseURL.isEmpty || isTestingHMAC)
                 }
 
-                Section("Siguiente sincronización") {
-                    Label("Endpoint → Watch", systemImage: "applewatch")
-                    Label("Secreto → Keychain del Watch", systemImage: "key.horizontal")
-                    Text("La sincronización con WatchConnectivity se habilitará en la siguiente fase. No pegues el secreto en código, logs o capturas públicas.")
+                Section("Apple Watch") {
+                    Label(
+                        watchBootstrap.activationMessage,
+                        systemImage: watchBootstrap.isReachable ? "applewatch.radiowaves.left.and.right" : "applewatch.slash"
+                    )
+                    .foregroundStyle(watchBootstrap.isReachable ? .green : .secondary)
+
+                    Button {
+                        Task { @MainActor in
+                            await sendConfigurationToWatch()
+                        }
+                    } label: {
+                        if isSendingToWatch {
+                            ProgressView()
+                        } else {
+                            Label("Enviar configuración al Watch", systemImage: "iphone.and.arrow.forward")
+                        }
+                    }
+                    .disabled(!secretConfigured || !watchBootstrap.isReachable || isSendingToWatch)
+
+                    Text("Abre Hermes en ambos simuladores. El secreto viaja solo en un mensaje interactivo y se guarda inmediatamente en Keychain del Watch.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -151,6 +171,33 @@ struct IOSContentView: View {
             let health = try? JSONDecoder().decode(BFFHealthResponse.self, from: data)
             statusMessage = health.map { "Conectado · \($0.mode ?? $0.status)" } ?? "Conectado · HTTP \(httpResponse.statusCode)"
         } catch {
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func sendConfigurationToWatch() async {
+        isSendingToWatch = true
+
+        do {
+            guard let secret = try await secretStore.loadRouteSecret(), !secret.isEmpty else {
+                secretConfigured = false
+                statusMessage = "Guarda primero el secreto HMAC"
+                isSendingToWatch = false
+                return
+            }
+            let baseURL = try EndpointValidator.normalizedBaseURL(from: savedBaseURL)
+            watchBootstrap.sendConfiguration(baseURL: baseURL, routeSecret: secret) { result in
+                isSendingToWatch = false
+                switch result {
+                case .success:
+                    statusMessage = "Configuración segura enviada al Watch"
+                case .failure(let error):
+                    statusMessage = error.localizedDescription
+                }
+            }
+        } catch {
+            isSendingToWatch = false
             statusMessage = error.localizedDescription
         }
     }

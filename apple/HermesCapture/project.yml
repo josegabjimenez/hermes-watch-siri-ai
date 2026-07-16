@@ -18,6 +18,7 @@ targets:
       - path: Apps/Shared
     dependencies:
       - package: HermesCore
+      - sdk: WatchConnectivity.framework
       - target: HermesCaptureWatch
         embed: true
     settings:
@@ -37,6 +38,7 @@ targets:
       - path: Apps/Shared
     dependencies:
       - package: HermesCore
+      - sdk: WatchConnectivity.framework
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture.watchkitapp
       MARKETING_VERSION: 0.1.0

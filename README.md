@@ -16,6 +16,7 @@ The project starts with a documented backend staging layer and API contract, the
 - Initial XcodeGen + Swift Package scaffold under `apple/HermesCapture`.
 - Watch system text-entry/dictation flow with local file-backed outbox.
 - iPhone HTTPS endpoint configuration, health check, and route secret in Keychain.
+- User-initiated WatchConnectivity bootstrap into Watch Keychain.
 
 ## What “BFF” means here
 
@@ -61,6 +62,7 @@ docs/
   XCODE_FOUNDATION_STATUS.md
   WATCH_OUTBOX_CAPTURE_STATUS.md
   IPHONE_SECURE_CONFIGURATION_STATUS.md
+  WATCH_CONNECTIVITY_BOOTSTRAP_STATUS.md
   subagent-briefs/
 ```
 

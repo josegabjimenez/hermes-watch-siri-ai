@@ -7,7 +7,7 @@ public enum KeychainRouteSecretError: Error, Equatable, Sendable {
     case invalidStoredData
 }
 
-public actor KeychainRouteSecretStore: RouteSecretStore {
+public final class KeychainRouteSecretStore: RouteSecretStore, @unchecked Sendable {
     public static let defaultService = "dev.josegabjimenez.HermesCapture.mobile-capture"
     public static let defaultAccount = "route-hmac-secret-v1"
 
@@ -23,6 +23,10 @@ public actor KeychainRouteSecretStore: RouteSecretStore {
     }
 
     public func loadRouteSecret() async throws -> String? {
+        try loadRouteSecretSynchronously()
+    }
+
+    public func loadRouteSecretSynchronously() throws -> String? {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -45,6 +49,10 @@ public actor KeychainRouteSecretStore: RouteSecretStore {
     }
 
     public func saveRouteSecret(_ secret: String) async throws {
+        try saveRouteSecretSynchronously(secret)
+    }
+
+    public func saveRouteSecretSynchronously(_ secret: String) throws {
         let data = Data(secret.utf8)
         let update: [String: Any] = [
             kSecValueData as String: data,
@@ -69,6 +77,10 @@ public actor KeychainRouteSecretStore: RouteSecretStore {
     }
 
     public func deleteRouteSecret() async throws {
+        try deleteRouteSecretSynchronously()
+    }
+
+    public func deleteRouteSecretSynchronously() throws {
         let status = SecItemDelete(baseQuery as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainRouteSecretError.unexpectedStatus(status)
