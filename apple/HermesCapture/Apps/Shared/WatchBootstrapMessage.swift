@@ -19,3 +19,59 @@ enum WatchBootstrapMessage {
         ]
     }
 }
+
+enum WatchDiagnosticsMessage {
+    static let command = "watch_outbox_diagnostics_v1"
+    static let configuredKey = "configured"
+    static let outboxReadableKey = "outbox_readable"
+    static let totalKey = "outbox_total"
+    static let pendingKey = "outbox_pending"
+    static let sendingKey = "outbox_sending"
+    static let sentKey = "outbox_sent"
+    static let failedKey = "outbox_failed"
+
+    static var request: [String: Any] {
+        [WatchBootstrapMessage.commandKey: command]
+    }
+}
+
+struct WatchOutboxDiagnostics: Equatable, Sendable {
+    let configured: Bool
+    let outboxReadable: Bool
+    let total: Int
+    let pending: Int
+    let sending: Int
+    let sent: Int
+    let failed: Int
+
+    init?(reply: [String: Any]) {
+        guard
+            let configured = reply[WatchDiagnosticsMessage.configuredKey] as? Bool,
+            let outboxReadable = reply[WatchDiagnosticsMessage.outboxReadableKey] as? Bool,
+            let total = reply[WatchDiagnosticsMessage.totalKey] as? Int,
+            let pending = reply[WatchDiagnosticsMessage.pendingKey] as? Int,
+            let sending = reply[WatchDiagnosticsMessage.sendingKey] as? Int,
+            let sent = reply[WatchDiagnosticsMessage.sentKey] as? Int,
+            let failed = reply[WatchDiagnosticsMessage.failedKey] as? Int
+        else {
+            return nil
+        }
+        guard
+            total >= 0,
+            pending >= 0,
+            sending >= 0,
+            sent >= 0,
+            failed >= 0,
+            pending + sending + sent + failed == total
+        else {
+            return nil
+        }
+        self.configured = configured
+        self.outboxReadable = outboxReadable
+        self.total = total
+        self.pending = pending
+        self.sending = sending
+        self.sent = sent
+        self.failed = failed
+    }
+}

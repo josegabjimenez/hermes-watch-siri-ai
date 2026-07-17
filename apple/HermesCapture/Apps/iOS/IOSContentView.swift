@@ -14,6 +14,8 @@ struct IOSContentView: View {
     @State private var isTesting = false
     @State private var isTestingHMAC = false
     @State private var isSendingToWatch = false
+    @State private var isLoadingWatchDiagnostics = false
+    @State private var watchDiagnostics: WatchOutboxDiagnostics?
 
     private let secretStore = KeychainRouteSecretStore()
     private let accent = Color(red: 187 / 255, green: 0, blue: 14 / 255)
@@ -104,6 +106,26 @@ struct IOSContentView: View {
                     }
                     .disabled(!secretConfigured || !watchBootstrap.isReachable || isSendingToWatch)
 
+                    Button {
+                        requestWatchDiagnostics()
+                    } label: {
+                        if isLoadingWatchDiagnostics {
+                            ProgressView()
+                        } else {
+                            Label("Actualizar diagnóstico", systemImage: "waveform.path.ecg")
+                        }
+                    }
+                    .disabled(!watchBootstrap.isReachable || isLoadingWatchDiagnostics)
+
+                    if let diagnostics = watchDiagnostics {
+                        LabeledContent("Watch configurado", value: diagnostics.configured ? "Sí" : "No")
+                        LabeledContent("Outbox legible", value: diagnostics.outboxReadable ? "Sí" : "No")
+                        LabeledContent("Total", value: "\(diagnostics.total)")
+                        LabeledContent("Enviados", value: "\(diagnostics.sent)")
+                        LabeledContent("Pendientes", value: "\(diagnostics.pending + diagnostics.sending)")
+                        LabeledContent("Fallidos", value: "\(diagnostics.failed)")
+                    }
+
                     Text("Abre Hermes en ambos simuladores. El secreto viaja solo en un mensaje interactivo y se guarda inmediatamente en Keychain del Watch.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -172,6 +194,21 @@ struct IOSContentView: View {
             statusMessage = health.map { "Conectado · \($0.mode ?? $0.status)" } ?? "Conectado · HTTP \(httpResponse.statusCode)"
         } catch {
             statusMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func requestWatchDiagnostics() {
+        isLoadingWatchDiagnostics = true
+        watchBootstrap.requestDiagnostics { result in
+            isLoadingWatchDiagnostics = false
+            switch result {
+            case .success(let diagnostics):
+                watchDiagnostics = diagnostics
+                statusMessage = "Diagnóstico del Watch actualizado"
+            case .failure(let error):
+                statusMessage = error.localizedDescription
+            }
         }
     }
 

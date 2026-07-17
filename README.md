@@ -18,6 +18,11 @@ The project starts with a documented backend staging layer and API contract, the
 - iPhone HTTPS endpoint configuration, health check, and route secret in Keychain.
 - User-initiated WatchConnectivity bootstrap into Watch Keychain.
 - End-to-end Watch outbox delivery to the synchronous BFF in dry-run mode.
+- Local Watch history plus sanitized aggregate diagnostics on iPhone.
+
+## Review policy
+
+New reviews use GPT-5.6-sol with Max Thinking. Historical Fable 5 documents remain in the repository as decision records, but Fable 5 is no longer used as the reviewer.
 
 ## What “BFF” means here
 
@@ -65,6 +70,8 @@ docs/
   IPHONE_SECURE_CONFIGURATION_STATUS.md
   WATCH_CONNECTIVITY_BOOTSTRAP_STATUS.md
   WATCH_E2E_DRY_RUN_STATUS.md
+  WATCH_HISTORY_DIAGNOSTICS_STATUS.md
+  GPT56_SOL_MAX_REVIEW_001_HISTORY_DIAGNOSTICS.md
   subagent-briefs/
 ```
 

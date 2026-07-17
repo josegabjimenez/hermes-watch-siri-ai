@@ -37,6 +37,45 @@ final class WatchBootstrapReceiver: NSObject, ObservableObject {
             self?.statusMessage = message
         }
     }
+
+    private func diagnosticsReply() -> [String: Any] {
+        let endpoint = UserDefaults.standard.string(forKey: "hermes.baseURL") ?? ""
+        let secret = (try? secretStore.loadRouteSecretSynchronously()) ?? ""
+        let configured = !endpoint.isEmpty && !secret.isEmpty
+
+        let items: [OutboxItem]
+        let outboxReadable: Bool
+        do {
+            if FileManager.default.fileExists(atPath: outboxURL.path) {
+                let data = try Data(contentsOf: outboxURL)
+                items = try JSONDecoder.hermesCaptureDecoder().decode([OutboxItem].self, from: data)
+            } else {
+                items = []
+            }
+            outboxReadable = true
+        } catch {
+            items = []
+            outboxReadable = false
+        }
+
+        return [
+            WatchBootstrapMessage.replyOKKey: true,
+            WatchDiagnosticsMessage.configuredKey: configured,
+            WatchDiagnosticsMessage.outboxReadableKey: outboxReadable,
+            WatchDiagnosticsMessage.totalKey: items.count,
+            WatchDiagnosticsMessage.pendingKey: items.filter { $0.status == .pending }.count,
+            WatchDiagnosticsMessage.sendingKey: items.filter { $0.status == .sending }.count,
+            WatchDiagnosticsMessage.sentKey: items.filter { $0.status == .sent }.count,
+            WatchDiagnosticsMessage.failedKey: items.filter { $0.status == .failed }.count
+        ]
+    }
+
+    private var outboxURL: URL {
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return root
+            .appendingPathComponent("HermesCapture", isDirectory: true)
+            .appendingPathComponent("outbox.json", isDirectory: false)
+    }
 }
 
 extension WatchBootstrapReceiver: WCSessionDelegate {
@@ -55,7 +94,18 @@ extension WatchBootstrapReceiver: WCSessionDelegate {
         didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
-        guard message[WatchBootstrapMessage.commandKey] as? String == WatchBootstrapMessage.command else {
+        guard let command = message[WatchBootstrapMessage.commandKey] as? String else {
+            replyHandler([
+                WatchBootstrapMessage.replyOKKey: false,
+                WatchBootstrapMessage.replyErrorKey: "unsupported_command"
+            ])
+            return
+        }
+        if command == WatchDiagnosticsMessage.command {
+            replyHandler(diagnosticsReply())
+            return
+        }
+        guard command == WatchBootstrapMessage.command else {
             replyHandler([
                 WatchBootstrapMessage.replyOKKey: false,
                 WatchBootstrapMessage.replyErrorKey: "unsupported_command"

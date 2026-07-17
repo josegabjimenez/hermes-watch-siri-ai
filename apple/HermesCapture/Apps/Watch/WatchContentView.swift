@@ -19,6 +19,12 @@ struct WatchContentView: View {
                             Label(action.title, systemImage: action.symbolName)
                         }
                     }
+
+                    NavigationLink {
+                        WatchHistoryView()
+                    } label: {
+                        Label("Historial", systemImage: "clock.arrow.circlepath")
+                    }
                 }
 
                 Section {

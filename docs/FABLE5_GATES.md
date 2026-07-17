@@ -1,8 +1,8 @@
-# Fable 5 Review Gates — Hermes Siri AI
+# Historical Fable 5 Review Gates — Hermes Siri AI
 
-Este proyecto usará “Fable 5” como protocolo de decisiones importantes/reviews/auditorías. Cada decisión grande debe pasar por cinco lentes antes de implementarse.
+> **Superseded for new reviews on 2026-07-17.** Jose requested that new reviews use the current GPT-5.6-sol model with Max Thinking instead of Fable 5. This document and prior Fable reviews remain only as historical decision records. Domain safety conditions recorded here are still requirements unless explicitly replaced.
 
-> Si Jose se refiere a un modelo/herramienta específica llamada Fable 5, este protocolo se puede conectar a ese reviewer después. Mientras tanto, Argos lo usará como gate operativo para no tomar malas decisiones técnicas.
+This project previously used “Fable 5” as a protocol for important decisions/reviews/audits.
 
 ## Los 5 lentes
 

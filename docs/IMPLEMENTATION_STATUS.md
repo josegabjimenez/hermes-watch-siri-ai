@@ -120,7 +120,7 @@ docs/PIPO_BACKEND_REVIEW_REMEDIATION.md
 docs/FABLE5_REVIEW_003_BACKEND_STAGING_REMEDIATION.md
 ```
 
-Summary: Pipo's blockers were valid for the generic Hermes webhook path. The staging BFF now addresses the idempotency/header/synchronous-response issues for MVP development, but production writes remain blocked until the BFF/equivalent endpoint is deployed durably and passes Fable 5/domain gates.
+Summary: Pipo's blockers were valid for the generic Hermes webhook path. The staging BFF now addresses the idempotency/header/synchronous-response issues for MVP development, but production writes remain blocked until the BFF/equivalent endpoint is deployed durably and passes the domain/security gates plus a GPT-5.6-sol Max Thinking review.
 
 ## Tailscale Serve HTTPS endpoint
 
@@ -177,4 +177,4 @@ Keep writes disabled. Next implementation lane:
 2. Validate reminder, grocery, and general-capture routes end-to-end.
 3. Test retry behavior by intentionally interrupting network access.
 4. Run the same flow on a physical Apple Watch.
-5. Perform Fable 5 review before any server-side write flag or domain integration is enabled.
+5. Perform a GPT-5.6-sol Max Thinking review before any server-side write flag or domain integration is enabled.

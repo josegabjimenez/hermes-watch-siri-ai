@@ -100,6 +100,85 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         XCTAssertEqual(deliverableItems.count, 1)
     }
 
+    func testNetworkFailureRetriesSameRequestIDAndMarksSent() async throws {
+        let fixture = try await makeFixture(requestID: "delivery-retry")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let failingClient = WebhookClient(
+            endpoint: URL(string: "https://example.invalid/webhooks/mobile-capture-v1")!,
+            session: URLSessionStub { _ in
+                throw URLError(.notConnectedToInternet)
+            }
+        )
+        let firstAttempt = OutboxDeliveryService(
+            store: fixture.store,
+            client: failingClient,
+            nowISO8601: { "2026-07-13T22:00:01Z" }
+        )
+
+        do {
+            _ = try await firstAttempt.deliver(
+                payload: fixture.payload,
+                secret: "unit-test-secret"
+            )
+            XCTFail("Expected network failure")
+        } catch let failure as OutboxDeliveryFailure {
+            XCTAssertEqual(failure, .network(URLError.notConnectedToInternet.rawValue))
+        }
+
+        var items = try await fixture.store.loadAll()
+        XCTAssertEqual(items.first?.status, .failed)
+        XCTAssertEqual(items.first?.attempts, 1)
+        XCTAssertEqual(items.first?.payload.requestID, "delivery-retry")
+
+        let responseBody = Data("""
+        {
+          "status":"accepted",
+          "dry_run":true,
+          "request_id":"delivery-retry",
+          "domain":"argos.general_capture",
+          "display_message":"Captura validada · dry-run ✅",
+          "plan":{"would_write":false,"side_effects":[]}
+        }
+        """.utf8)
+        let successClient = WebhookClient(
+            endpoint: URL(string: "https://example.invalid/webhooks/mobile-capture-v1")!,
+            session: URLSessionStub { request in
+                XCTAssertEqual(
+                    request.value(forHTTPHeaderField: WebhookHeaders.requestID),
+                    "delivery-retry"
+                )
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )
+                )
+                return (responseBody, response)
+            }
+        )
+        let retry = OutboxDeliveryService(
+            store: fixture.store,
+            client: successClient,
+            nowISO8601: { "2026-07-13T22:00:02Z" }
+        )
+
+        _ = try await retry.deliver(
+            payload: fixture.payload,
+            secret: "unit-test-secret"
+        )
+
+        items = try await fixture.store.loadAll()
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.status, .sent)
+        XCTAssertEqual(items.first?.attempts, 2)
+        XCTAssertNil(items.first?.lastError)
+        let remaining = try await fixture.store.loadDeliverable()
+        XCTAssertTrue(remaining.isEmpty)
+    }
+
     private func makeFixture(requestID: String) async throws -> DeliveryFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

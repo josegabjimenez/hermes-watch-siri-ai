@@ -54,6 +54,34 @@ final class IPhoneWatchBootstrapCoordinator: NSObject, ObservableObject {
         }
     }
 
+    func requestDiagnostics(
+        completion: @escaping (Result<WatchOutboxDiagnostics, WatchBootstrapSendError>) -> Void
+    ) {
+        guard let session else {
+            completion(.failure(.unsupported))
+            return
+        }
+        guard session.isReachable else {
+            refreshReachability(session)
+            completion(.failure(.watchNotReachable))
+            return
+        }
+
+        session.sendMessage(WatchDiagnosticsMessage.request) { reply in
+            DispatchQueue.main.async {
+                guard let diagnostics = WatchOutboxDiagnostics(reply: reply) else {
+                    completion(.failure(.watchRejected))
+                    return
+                }
+                completion(.success(diagnostics))
+            }
+        } errorHandler: { _ in
+            DispatchQueue.main.async {
+                completion(.failure(.deliveryFailed))
+            }
+        }
+    }
+
     private func refreshReachability(_ session: WCSession) {
         DispatchQueue.main.async { [weak self] in
             self?.isReachable = session.isReachable
@@ -109,9 +137,9 @@ enum WatchBootstrapSendError: LocalizedError {
         case .watchNotReachable:
             return "Abre Hermes en el Apple Watch y vuelve a intentar"
         case .watchRejected:
-            return "El Apple Watch rechazó la configuración"
+            return "El Apple Watch rechazó la solicitud"
         case .deliveryFailed:
-            return "No se pudo entregar la configuración al Apple Watch"
+            return "No se pudo entregar la solicitud al Apple Watch"
         }
     }
 }

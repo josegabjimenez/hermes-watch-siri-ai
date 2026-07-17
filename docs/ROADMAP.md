@@ -24,7 +24,7 @@
   - gasto → Megan/Firefly.
   - recordatorio/captura → Aura/Notion/Calendar.
 
-### Gate Fable 5 requerido
+### Review GPT-5.6-sol Max Thinking requerido
 
 - ¿Un endpoint unificado v1 reduce complejidad sin romper webhooks actuales?
 - ¿Qué secreto/token se usará y dónde se almacena?
@@ -65,7 +65,7 @@ Módulo `HermesCore`:
   - producción HTTPS,
   - debug.
 
-### Gate Fable 5 requerido
+### Review GPT-5.6-sol Max Thinking requerido
 
 - Seguridad de token/API key.
 - Idempotencia y manejo de retries.
@@ -127,7 +127,7 @@ Acciones sugeridas:
 - Historial local de últimas 5 capturas.
 - Haptic feedback para enviado/error.
 
-### Gate Fable 5 requerido
+### Review GPT-5.6-sol Max Thinking requerido
 
 - ¿El flujo más usado se completa en menos de 5 segundos después de abrir la app?
 - ¿La confirmación reduce el riesgo de errores financieros o de fechas?
@@ -157,7 +157,7 @@ No competir con el Watch; servir como panel de configuración y debug.
 - Cambiar orden de acciones.
 - Mostrar logs/respuestas detalladas.
 
-### Gate Fable 5 requerido
+### Review GPT-5.6-sol Max Thinking requerido
 
 - ¿Qué debe quedarse simple en iPhone para no retrasar el MVP Watch?
 - ¿Qué configuración es obligatoria para que el Watch sea confiable?
@@ -191,7 +191,7 @@ Llevar los flujos a Siri sin depender solamente de Shortcuts manuales.
 - “Agregar al mercado”.
 - “Preguntar a Argos”.
 
-### Gate Fable 5 requerido
+### Review GPT-5.6-sol Max Thinking requerido
 
 - Validar disponibilidad real de App Intents/Siri en Watch en Xcode/dispositivo.
 - Definir frases simples y robustas en español.
@@ -214,7 +214,7 @@ Llevar los flujos a Siri sin depender solamente de Shortcuts manuales.
 - Estado de agentes: última captura, pendientes, errores.
 - Cola offline si no hay conexión.
 
-### Gate Fable 5 requerido
+### Review GPT-5.6-sol Max Thinking requerido
 
 - No prometer notificaciones a Laura/amorcito u otros canales sin delivery verificado.
 - Separar `accepted` de `completed` para tareas largas.
