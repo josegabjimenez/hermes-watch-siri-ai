@@ -145,13 +145,36 @@ Signed HMAC V2 Megan fixture → HTTP 200 accepted / dry_run true / no write
 
 See `TAILSCALE_SERVE_ENDPOINT.md`.
 
+## Apple simulator milestone
+
+Verified on Jose's paired iPhone + Apple Watch simulators:
+
+```text
+Xcode project generation and app installation
+HermesCore XCTest suite: 8 tests, 0 failures
+System Watch text input
+File-backed outbox before network
+HTTPS/HMAC endpoint configuration in iPhone Keychain
+User-initiated WatchConnectivity bootstrap into Watch Keychain
+Signed Watch POST through Tailscale Serve
+Synchronous BFF display_message rendered on Watch
+```
+
+Observed end-to-end result:
+
+```text
+Input: 45 mil en Uber
+Watch: Dry-run Megan $45.000 COP
+```
+
+No external write occurred.
+
 ## Recommended next step
 
-Use the synchronous BFF contract for the native Watch app MVP because it returns immediate JSON. Keep the Hermes generic webhook subscription as a compatible async ingestion/log route, or have the BFF forward to Hermes after the synchronous validation/ledger layer.
+Keep writes disabled. Next implementation lane:
 
-Next implementation lane:
-
-1. Test the Tailscale HTTPS endpoint from Jose's Mac and iPhone with Tailscale connected.
-2. Scaffold Xcode project and point Watch/iPhone development builds to the Tailscale Serve BFF URL.
-3. Implement iPhone config + Keychain secret bootstrap to Watch.
-4. Keep all domains in dry-run/no-write until physical Watch QA and Fable 5 gates pass.
+1. Add local Watch/iPhone history and diagnostics for sent/failed outbox items.
+2. Validate reminder, grocery, and general-capture routes end-to-end.
+3. Test retry behavior by intentionally interrupting network access.
+4. Run the same flow on a physical Apple Watch.
+5. Perform Fable 5 review before any server-side write flag or domain integration is enabled.

@@ -1,6 +1,29 @@
 # Watch end-to-end dry-run delivery
 
-**Status:** implemented; watchOS simulator validation required.
+**Status:** verified end-to-end on Jose's paired iPhone + Apple Watch simulators.
+
+## Verified result — 2026-07-17 America/Bogota
+
+Jose completed the Watch expense flow with:
+
+```text
+45 mil en Uber
+```
+
+The Watch displayed the synchronous BFF response:
+
+```text
+Dry-run Megan $45.000 COP
+```
+
+This verifies the real simulator path:
+
+```text
+Watch UI → local outbox → Watch Keychain secret → HMAC V2 →
+Tailscale Serve HTTPS → synchronous BFF → display_message
+```
+
+No Firefly write occurred; the BFF response remained `dry_run: true` and `would_write: false`.
 
 ## User flow
 
