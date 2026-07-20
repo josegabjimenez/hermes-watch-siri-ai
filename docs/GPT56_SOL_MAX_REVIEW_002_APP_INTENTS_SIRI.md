@@ -60,6 +60,8 @@ Linux can verify HermesCore and parse Swift syntax, but cannot run App Intents m
 - watchOS execution target;
 - Siri availability on simulator/device.
 
+A known Apple simulator regression affects Xcode 26.5–27 beta 2 with iOS Simulator 26.5–27 beta 2: Auto Shortcuts may report that no `AppShortcutsProvider` exists even for Apple's sample project. This must be separated from provider correctness by checking metadata extraction, manually invoking the underlying App Intent, and using an older runtime or physical device for authoritative validation.
+
 ## Required conditions before physical-device milestone
 
 1. Build iOS and Watch schemes with full Xcode.

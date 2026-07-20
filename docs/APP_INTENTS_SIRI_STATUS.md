@@ -105,6 +105,37 @@ HermesCore coverage includes:
 - successful retry to `sent` with attempt count `2`;
 - existing HMAC, endpoint, headers, idempotency, and response safety tests.
 
+## Known Xcode 26 Simulator regression
+
+Apple Developer Forums document a simulator regression matching this project exactly:
+
+```text
+Attempted to fetch Auto Shortcuts, but couldn't find the AppShortcutsProvider
+```
+
+Affected combinations reported by Apple developers include:
+
+```text
+Xcode 26.5 through Xcode 27 beta 2
+iOS Simulator 26.5 through iOS 27 beta 2
+```
+
+The same error occurs with Apple's official App Intents sample, so this log alone does not prove that the app's provider is missing. Jose reproduced it with Xcode 26.6 and an iOS 26.5 simulator.
+
+Recommended validation order:
+
+1. Confirm the Xcode build contains a successful `ExtractAppIntentsMetadata` step.
+2. In Shortcuts, manually create a shortcut by adding one Hermes App Intent action instead of running an automatically suggested App Shortcut.
+3. If available, test with an older compatible simulator runtime such as iOS 26.3.
+4. Treat a physical iPhone/Watch run as the authoritative App Shortcuts validation.
+
+References:
+
+- <https://developer.apple.com/forums/thread/835888>
+- <https://developer.apple.com/forums/thread/836585>
+
+Do not rewrite a valid `AppShortcutsProvider` solely to work around this simulator regression.
+
 ## Remaining Apple QA
 
 - compile both generated Xcode targets and inspect App Intents metadata extraction;
