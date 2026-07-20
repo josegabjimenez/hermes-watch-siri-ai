@@ -19,6 +19,7 @@ The project starts with a documented backend staging layer and API contract, the
 - User-initiated WatchConnectivity bootstrap into Watch Keychain.
 - End-to-end Watch outbox delivery to the synchronous BFF in dry-run mode.
 - Local Watch history plus sanitized aggregate diagnostics on iPhone.
+- Authenticated iOS/watchOS App Intents and Spanish App Shortcuts in dry-run mode.
 
 ## Review policy
 
@@ -72,6 +73,8 @@ docs/
   WATCH_E2E_DRY_RUN_STATUS.md
   WATCH_HISTORY_DIAGNOSTICS_STATUS.md
   GPT56_SOL_MAX_REVIEW_001_HISTORY_DIAGNOSTICS.md
+  APP_INTENTS_SIRI_STATUS.md
+  GPT56_SOL_MAX_REVIEW_002_APP_INTENTS_SIRI.md
   subagent-briefs/
 ```
 

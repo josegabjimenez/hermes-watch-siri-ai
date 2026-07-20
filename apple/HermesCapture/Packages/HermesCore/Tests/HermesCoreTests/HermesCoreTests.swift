@@ -98,6 +98,29 @@ final class HermesCoreTests: XCTestCase {
         XCTAssertEqual(payload.context.allowWrite, false)
     }
 
+    func testCaptureFactoryAllowsAppIntentModality() {
+        let factory = CaptureFactory(
+            appVersion: "0.1.0",
+            platform: "watchOS",
+            osVersion: "26.5",
+            deviceID: "unit-device",
+            surface: "app_intent_watch",
+            nowISO8601: { "2026-07-17T20:00:00Z" },
+            makeRequestID: { "intent-request" }
+        )
+
+        let payload = factory.makePayload(
+            kind: .expense,
+            text: "45 mil en Uber",
+            modality: "app_intent"
+        )
+
+        XCTAssertEqual(payload.capture.modality, "app_intent")
+        XCTAssertEqual(payload.source.surface, "app_intent_watch")
+        XCTAssertEqual(payload.context.dryRun, true)
+        XCTAssertEqual(payload.context.allowWrite, false)
+    }
+
     func testFileOutboxPersistsAndDeduplicatesRequestID() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -135,6 +158,43 @@ final class HermesCoreTests: XCTestCase {
         XCTAssertEqual(items.first?.status, .sent)
         XCTAssertEqual(items.first?.attempts, 1)
         XCTAssertNil(items.first?.lastError)
+    }
+
+    func testMultipleStoreInstancesDoNotLoseConcurrentEnqueues() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directory.appendingPathComponent("outbox.json")
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<20 {
+                group.addTask {
+                    let payload = CapturePayloadV1(
+                        requestID: "concurrent-\(index)",
+                        createdAt: "2026-07-17T20:00:00Z",
+                        source: CaptureSource(
+                            appVersion: "0.1.0",
+                            platform: "watchOS",
+                            osVersion: "26.5",
+                            deviceID: "unit-device",
+                            surface: "app_intent_watch"
+                        ),
+                        route: .general,
+                        capture: CaptureText(
+                            modality: "app_intent",
+                            text: "capture \(index)"
+                        )
+                    )
+                    _ = try await FileOutboxStore(fileURL: fileURL)
+                        .enqueue(payload, now: payload.createdAt)
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let items = try await FileOutboxStore(fileURL: fileURL).loadAll()
+        XCTAssertEqual(items.count, 20)
+        XCTAssertEqual(Set(items.map(\.id)).count, 20)
     }
 
     func testEndpointValidatorRequiresHTTPSAndBuildsHealthURL() throws {

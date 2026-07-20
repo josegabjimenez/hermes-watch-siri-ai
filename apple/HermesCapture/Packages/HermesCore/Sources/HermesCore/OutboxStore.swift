@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public enum OutboxStatus: String, Codable, Equatable, Sendable {
     case pending
@@ -54,17 +59,25 @@ public actor FileOutboxStore {
     }
 
     public func enqueue(_ payload: CapturePayloadV1, now: String) throws -> OutboxItem {
-        var items = try loadAll()
-        if let existing = items.first(where: { $0.payload.requestID == payload.requestID }) {
-            return existing
+        try withExclusiveFileLock {
+            var items = try loadAllUnlocked()
+            if let existing = items.first(where: { $0.payload.requestID == payload.requestID }) {
+                return existing
+            }
+            let item = OutboxItem(payload: payload, createdAt: now, updatedAt: now)
+            items.append(item)
+            try saveAllUnlocked(items)
+            return item
         }
-        let item = OutboxItem(payload: payload, createdAt: now, updatedAt: now)
-        items.append(item)
-        try saveAll(items)
-        return item
     }
 
     public func loadAll() throws -> [OutboxItem] {
+        try withExclusiveFileLock {
+            try loadAllUnlocked()
+        }
+    }
+
+    private func loadAllUnlocked() throws -> [OutboxItem] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
         let data = try Data(contentsOf: fileURL)
         if data.isEmpty { return [] }
@@ -101,17 +114,45 @@ public actor FileOutboxStore {
     }
 
     private func update(requestID: String, now: String, mutate: (inout OutboxItem) -> Void) throws {
-        var items = try loadAll()
-        guard let index = items.firstIndex(where: { $0.payload.requestID == requestID }) else { return }
-        mutate(&items[index])
-        items[index].updatedAt = now
-        try saveAll(items)
+        try withExclusiveFileLock {
+            var items = try loadAllUnlocked()
+            guard let index = items.firstIndex(where: { $0.payload.requestID == requestID }) else { return }
+            mutate(&items[index])
+            items[index].updatedAt = now
+            try saveAllUnlocked(items)
+        }
     }
 
-    private func saveAll(_ items: [OutboxItem]) throws {
+    private func saveAllUnlocked(_ items: [OutboxItem]) throws {
         let directory = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try encoder.encode(items)
         try data.write(to: fileURL, options: [.atomic])
+    }
+
+    private func withExclusiveFileLock<T>(_ body: () throws -> T) throws -> T {
+        let directory = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let lockURL = fileURL.appendingPathExtension("lock")
+        let descriptor = lockURL.path.withCString {
+            open($0, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        }
+        guard descriptor >= 0 else {
+            throw NSError(
+                domain: "HermesCore.OutboxLock",
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "Could not open outbox lock"]
+            )
+        }
+        defer { close(descriptor) }
+        guard flock(descriptor, LOCK_EX) == 0 else {
+            throw NSError(
+                domain: "HermesCore.OutboxLock",
+                code: Int(errno),
+                userInfo: [NSLocalizedDescriptionKey: "Could not lock outbox"]
+            )
+        }
+        defer { flock(descriptor, LOCK_UN) }
+        return try body()
     }
 }

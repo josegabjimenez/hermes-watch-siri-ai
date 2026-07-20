@@ -167,14 +167,33 @@ Input: 45 mil en Uber
 Watch: Dry-run Megan $45.000 COP
 ```
 
+## History, diagnostics, and App Intents milestone
+
+Verified or implemented:
+
+```text
+Watch local history: user-verified
+Aggregate Watch→iPhone diagnostics: user-verified
+Megan expense route: user-verified dry-run
+Aura grocery route: user-verified dry-run
+Aura reminder route: user-verified dry-run
+Argos general route: user-verified dry-run
+HermesCore XCTest suite: 11 tests, 0 failures
+Concurrent UI/App Intent outbox locking: automated test passed
+Network failure → same-request-ID retry: automated test passed
+Four authenticated iOS/watchOS App Intents: implemented, awaiting Xcode QA
+Spanish App Shortcuts: implemented, awaiting metadata/discovery QA
+```
+
 No external write occurred.
 
 ## Recommended next step
 
 Keep writes disabled. Next implementation lane:
 
-1. Add local Watch/iPhone history and diagnostics for sent/failed outbox items.
-2. Validate reminder, grocery, and general-capture routes end-to-end.
-3. Test retry behavior by intentionally interrupting network access.
-4. Run the same flow on a physical Apple Watch.
-5. Perform a GPT-5.6-sol Max Thinking review before any server-side write flag or domain integration is enabled.
+1. Build generated iOS and Watch targets with full Xcode 26.6.
+2. Verify App Intents metadata extraction and all four shortcuts in the Shortcuts app.
+3. Invoke expense and reminder through Siri and confirm live dry-run BFF responses.
+4. Run the controlled Debug offline→retry flow.
+5. Run the same capture/Siri flow on a physical Apple Watch.
+6. Perform a new GPT-5.6-sol Max Thinking review before any external write is enabled.

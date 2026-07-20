@@ -16,6 +16,8 @@ struct IOSContentView: View {
     @State private var isSendingToWatch = false
     @State private var isLoadingWatchDiagnostics = false
     @State private var watchDiagnostics: WatchOutboxDiagnostics?
+    @State private var localOutboxDiagnostics = LocalOutboxDiagnostics.empty
+    @State private var isRetryingLocalOutbox = false
 
     private let secretStore = KeychainRouteSecretStore()
     private let accent = Color(red: 187 / 255, green: 0, blue: 14 / 255)
@@ -131,6 +133,34 @@ struct IOSContentView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Section("iPhone y Siri") {
+                    LabeledContent("Total local", value: "\(localOutboxDiagnostics.total)")
+                    LabeledContent("Enviados", value: "\(localOutboxDiagnostics.sent)")
+                    LabeledContent("Pendientes", value: "\(localOutboxDiagnostics.pending)")
+                    LabeledContent("Fallidos", value: "\(localOutboxDiagnostics.failed)")
+
+                    Button {
+                        Task { @MainActor in
+                            await retryLocalOutbox()
+                        }
+                    } label: {
+                        if isRetryingLocalOutbox {
+                            ProgressView()
+                        } else {
+                            Label("Reintentar capturas del iPhone", systemImage: "arrow.clockwise")
+                        }
+                    }
+                    .disabled(
+                        !secretConfigured ||
+                        localOutboxDiagnostics.deliverable == 0 ||
+                        isRetryingLocalOutbox
+                    )
+
+                    Text("Incluye capturas iniciadas por Siri o Shortcuts en el iPhone. El contenido permanece local; aquí solo se muestran contadores.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
                 if let statusMessage {
                     Section("Estado") {
                         Text(statusMessage)
@@ -143,6 +173,7 @@ struct IOSContentView: View {
                 endpointInput = savedBaseURL
                 Task { @MainActor in
                     await refreshSecretStatus()
+                    await refreshLocalOutbox()
                 }
             }
         }
@@ -289,6 +320,60 @@ struct IOSContentView: View {
     }
 
     @MainActor
+    private func refreshLocalOutbox() async {
+        do {
+            let items = try await FileOutboxStore(fileURL: localOutboxURL).loadAll()
+            localOutboxDiagnostics = LocalOutboxDiagnostics(items: items)
+        } catch {
+            statusMessage = "No se pudo leer el outbox del iPhone"
+        }
+    }
+
+    @MainActor
+    private func retryLocalOutbox() async {
+        isRetryingLocalOutbox = true
+        defer { isRetryingLocalOutbox = false }
+
+        do {
+            guard let secret = try await secretStore.loadRouteSecret(), !secret.isEmpty else {
+                secretConfigured = false
+                statusMessage = "Guarda primero el secreto HMAC"
+                return
+            }
+            let baseURL = try EndpointValidator.normalizedBaseURL(from: savedBaseURL)
+            let store = FileOutboxStore(fileURL: localOutboxURL)
+            let items = try await store.loadDeliverable()
+            guard !items.isEmpty else {
+                await refreshLocalOutbox()
+                statusMessage = "Sin capturas del iPhone para reintentar"
+                return
+            }
+
+            let delivery = OutboxDeliveryService(
+                store: store,
+                client: WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
+            )
+            var sent = 0
+            var failed = 0
+            for item in items {
+                do {
+                    _ = try await delivery.deliver(payload: item.payload, secret: secret)
+                    sent += 1
+                } catch {
+                    failed += 1
+                }
+            }
+            await refreshLocalOutbox()
+            statusMessage = failed == 0
+                ? "\(sent) captura(s) del iPhone enviadas · dry-run"
+                : "\(sent) enviadas · \(failed) aún pendientes"
+        } catch {
+            await refreshLocalOutbox()
+            statusMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
     private func refreshSecretStatus() async {
         do {
             secretConfigured = try await secretStore.loadRouteSecret() != nil
@@ -302,10 +387,49 @@ struct IOSContentView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0"
     }
 
+    private var localOutboxURL: URL {
+        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return root
+            .appendingPathComponent("HermesCapture", isDirectory: true)
+            .appendingPathComponent("outbox.json", isDirectory: false)
+    }
+
     private func ensureDeviceIdentity() {
         if deviceID.isEmpty {
             deviceID = "iphone-\(UUID().uuidString.lowercased())"
         }
+    }
+}
+
+private struct LocalOutboxDiagnostics {
+    let total: Int
+    let sent: Int
+    let pending: Int
+    let failed: Int
+    let deliverable: Int
+
+    static let empty = LocalOutboxDiagnostics(
+        total: 0,
+        sent: 0,
+        pending: 0,
+        failed: 0,
+        deliverable: 0
+    )
+
+    init(total: Int, sent: Int, pending: Int, failed: Int, deliverable: Int) {
+        self.total = total
+        self.sent = sent
+        self.pending = pending
+        self.failed = failed
+        self.deliverable = deliverable
+    }
+
+    init(items: [OutboxItem]) {
+        total = items.count
+        sent = items.filter { $0.status == .sent }.count
+        pending = items.filter { $0.status == .pending || $0.status == .sending }.count
+        failed = items.filter { $0.status == .failed }.count
+        deliverable = items.filter { $0.status != .sent && $0.attempts < 5 }.count
     }
 }
 

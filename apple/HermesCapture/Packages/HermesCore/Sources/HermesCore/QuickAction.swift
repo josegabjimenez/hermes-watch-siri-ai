@@ -70,7 +70,12 @@ public struct CaptureFactory: Sendable {
         self.makeRequestID = makeRequestID
     }
 
-    public func makePayload(kind: QuickActionKind, text: String, rawText: String? = nil) -> CapturePayloadV1 {
+    public func makePayload(
+        kind: QuickActionKind,
+        text: String,
+        rawText: String? = nil,
+        modality: String? = nil
+    ) -> CapturePayloadV1 {
         CapturePayloadV1(
             requestID: makeRequestID(),
             createdAt: nowISO8601(),
@@ -82,7 +87,11 @@ public struct CaptureFactory: Sendable {
                 surface: surface
             ),
             route: kind.route,
-            capture: CaptureText(modality: kind.modality, text: text, rawText: rawText),
+            capture: CaptureText(
+                modality: modality ?? kind.modality,
+                text: text,
+                rawText: rawText
+            ),
             context: CaptureContext(dryRun: true, allowWrite: false)
         )
     }

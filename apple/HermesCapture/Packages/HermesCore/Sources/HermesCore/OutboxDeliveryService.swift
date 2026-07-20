@@ -67,6 +67,11 @@ public actor OutboxDeliveryService {
         )
 
         do {
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["HERMES_SIMULATE_OFFLINE"] == "1" {
+                throw URLError(.notConnectedToInternet)
+            }
+            #endif
             let response = try await client.submit(payload: payload, secret: secret)
             guard response.dryRun == true, response.plan?.wouldWrite != true else {
                 throw OutboxDeliveryFailure.unsafeResponse

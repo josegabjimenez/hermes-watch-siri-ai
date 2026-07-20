@@ -18,13 +18,14 @@ targets:
       - path: Apps/Shared
     dependencies:
       - package: HermesCore
+      - sdk: AppIntents.framework
       - sdk: WatchConnectivity.framework
       - target: HermesCaptureWatch
         embed: true
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture
-      MARKETING_VERSION: 0.1.0
-      CURRENT_PROJECT_VERSION: 1
+      MARKETING_VERSION: 0.2.0
+      CURRENT_PROJECT_VERSION: 2
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -38,11 +39,12 @@ targets:
       - path: Apps/Shared
     dependencies:
       - package: HermesCore
+      - sdk: AppIntents.framework
       - sdk: WatchConnectivity.framework
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture.watchkitapp
-      MARKETING_VERSION: 0.1.0
-      CURRENT_PROJECT_VERSION: 1
+      MARKETING_VERSION: 0.2.0
+      CURRENT_PROJECT_VERSION: 2
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_WKApplication: YES
