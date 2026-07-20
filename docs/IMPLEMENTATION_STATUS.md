@@ -181,8 +181,10 @@ Argos general route: user-verified dry-run
 HermesCore XCTest suite: 11 tests, 0 failures
 Concurrent UI/App Intent outbox locking: automated test passed
 Network failure → same-request-ID retry: automated test passed
-Four authenticated iOS/watchOS App Intents: implemented, awaiting Xcode QA
-Spanish App Shortcuts: implemented, awaiting metadata/discovery QA
+Four authenticated iOS/watchOS App Intents: implemented
+Manually created iPhone Shortcut: user-verified dry-run and local status Enviado
+Auto Shortcuts on iOS 26.5 Simulator: blocked by known Apple regression
+Spanish App Shortcuts metadata: physical/older-runtime Auto Shortcut QA pending
 ```
 
 No external write occurred.

@@ -1,6 +1,24 @@
 # App Intents and Siri dry-run capture
 
-**Status:** implemented for iOS 17+ and watchOS 10+; Xcode simulator/device validation required.
+**Status:** iOS App Intent verified through a manually created Shortcut on iOS Simulator; Auto Shortcuts remain blocked by the known Xcode 26/iOS 26.5 simulator regression. watchOS/physical-device validation remains.
+
+## Verified iPhone Shortcut result — 2026-07-20 America/Bogota
+
+Jose manually created a Shortcut using the Hermes expense App Intent and confirmed:
+
+```text
+Shortcut execution → live dry-run response
+Hermes iOS local outbox → Enviado
+```
+
+This verifies:
+
+```text
+Shortcuts → App Intent → iPhone outbox → iPhone Keychain →
+HMAC V2 → Tailscale HTTPS → synchronous BFF → display response
+```
+
+The manually created Shortcut works. Only simulator Auto Shortcut discovery remains affected by the Apple regression below. No external write occurred.
 
 ## Intents
 
