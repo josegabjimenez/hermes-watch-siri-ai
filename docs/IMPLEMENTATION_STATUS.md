@@ -178,13 +178,17 @@ Megan expense route: user-verified dry-run
 Aura grocery route: user-verified dry-run
 Aura reminder route: user-verified dry-run
 Argos general route: user-verified dry-run
-HermesCore XCTest suite: 11 tests, 0 failures
+HermesCore XCTest suite: 12 tests, 0 failures
 Concurrent UI/App Intent outbox locking: automated test passed
 Network failure → same-request-ID retry: automated test passed
+Transient-fallback eligibility policy: automated test passed
 Four authenticated iOS/watchOS App Intents: implemented
 Manually created iPhone Shortcut: user-verified dry-run and local status Enviado
 Auto Shortcuts on iOS 26.5 Simulator: blocked by known Apple regression
 Spanish App Shortcuts metadata: physical/older-runtime Auto Shortcut QA pending
+Watch→iPhone capture fallback: implemented for transient failures, Xcode QA pending
+Privacy manifest: parsed and validated, Xcode archive report pending
+Physical-device build: version 0.3.0 (3)
 ```
 
 No external write occurred.
@@ -193,9 +197,10 @@ No external write occurred.
 
 Keep writes disabled. Next implementation lane:
 
-1. Build generated iOS and Watch targets with full Xcode 26.6.
-2. Verify App Intents metadata extraction and all four shortcuts in the Shortcuts app.
-3. Invoke expense and reminder through Siri and confirm live dry-run BFF responses.
-4. Run the controlled Debug offline→retry flow.
-5. Run the same capture/Siri flow on a physical Apple Watch.
-6. Perform a new GPT-5.6-sol Max Thinking review before any external write is enabled.
+1. Regenerate and build iOS and Watch targets with full Xcode 26.6.
+2. Keep the paired iPhone app open and verify simulated direct failure → iPhone fallback → Watch `Enviado`.
+3. Verify full outage with both Debug switches, then retry the same request ID.
+4. Install version 0.3.0 (3) on a physical paired iPhone/Apple Watch.
+5. Determine whether the physical Watch can route directly to tailnet MagicDNS; verify iPhone fallback when it cannot.
+6. Verify Shortcut/Siri and inspect the Xcode archive privacy report.
+7. Perform another GPT-5.6-sol Max Thinking review before any external write is enabled.

@@ -20,6 +20,8 @@ The project starts with a documented backend staging layer and API contract, the
 - End-to-end Watch outbox delivery to the synchronous BFF in dry-run mode.
 - Local Watch history plus sanitized aggregate diagnostics on iPhone.
 - Authenticated iOS/watchOS App Intents and Spanish App Shortcuts in dry-run mode.
+- Transient Watch→iPhone capture fallback that never transfers the HMAC secret.
+- Shared privacy manifest and automatic-signing readiness for physical-device QA.
 
 ## Review policy
 
@@ -75,6 +77,8 @@ docs/
   GPT56_SOL_MAX_REVIEW_001_HISTORY_DIAGNOSTICS.md
   APP_INTENTS_SIRI_STATUS.md
   GPT56_SOL_MAX_REVIEW_002_APP_INTENTS_SIRI.md
+  PHYSICAL_DEVICE_READINESS.md
+  GPT56_SOL_MAX_REVIEW_003_PHYSICAL_DEVICE_READINESS.md
   subagent-briefs/
 ```
 
@@ -122,12 +126,11 @@ Current status is **dry-run/no-write**.
 Blocked before production writes:
 
 - durable deployment behind HTTPS;
-- iPhone/Watch Keychain secret bootstrap;
 - server-side domain write flags;
 - production-grade ledger retention/backup;
-- privacy/log redaction policy;
+- archive privacy-report and App Store privacy reconciliation;
 - physical Apple Watch QA;
-- Fable 5 domain gates for Megan/Aura.
+- domain write gates for Megan/Aura.
 
 ## License
 

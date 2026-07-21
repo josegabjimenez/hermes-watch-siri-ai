@@ -84,18 +84,16 @@ struct WatchContentView: View {
                 return
             }
 
-            let delivery = OutboxDeliveryService(
-                store: store,
-                client: WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
-            )
             var sent = 0
             var failed = 0
 
             for item in items {
                 do {
-                    _ = try await delivery.deliver(
+                    _ = try await WatchCaptureDeliveryCoordinator.deliver(
                         payload: item.payload,
-                        secret: secret
+                        secret: secret,
+                        baseURL: baseURL,
+                        outbox: store
                     )
                     sent += 1
                 } catch {

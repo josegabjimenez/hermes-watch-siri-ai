@@ -75,3 +75,16 @@ struct WatchOutboxDiagnostics: Equatable, Sendable {
         self.failed = failed
     }
 }
+
+enum WatchCaptureFallbackMessage {
+    static let command = "watch_capture_fallback_v1"
+    static let payloadDataKey = "payload_data"
+    static let responseDataKey = "response_data"
+
+    static func make(payloadData: Data) -> [String: Any] {
+        [
+            WatchBootstrapMessage.commandKey: command,
+            payloadDataKey: payloadData
+        ]
+    }
+}

@@ -46,12 +46,22 @@ enum HermesAppIntentCaptureRunner {
             return "Guardado. Configura Hermes desde el iPhone"
         }
 
-        let delivery = OutboxDeliveryService(
-            store: outbox,
-            client: WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
-        )
         do {
-            let response = try await delivery.deliver(payload: payload, secret: secret)
+            let response: CaptureResponseV1
+            #if os(watchOS)
+            response = try await WatchCaptureDeliveryCoordinator.deliver(
+                payload: payload,
+                secret: secret,
+                baseURL: baseURL,
+                outbox: outbox
+            )
+            #else
+            let delivery = OutboxDeliveryService(
+                store: outbox,
+                client: WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
+            )
+            response = try await delivery.deliver(payload: payload, secret: secret)
+            #endif
             return response.displayMessage ?? "Enviado · dry-run"
         } catch let failure as OutboxDeliveryFailure {
             return failure.localizedDescription

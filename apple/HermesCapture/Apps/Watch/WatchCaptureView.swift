@@ -114,16 +114,11 @@ struct WatchCaptureView: View {
                 return
             }
 
-            let client = WebhookClient(
-                endpoint: EndpointValidator.captureURL(from: baseURL)
-            )
-            let delivery = OutboxDeliveryService(
-                store: outbox,
-                client: client
-            )
-            let response = try await delivery.deliver(
+            let response = try await WatchCaptureDeliveryCoordinator.deliver(
                 payload: payload,
-                secret: secret
+                secret: secret,
+                baseURL: baseURL,
+                outbox: outbox
             )
 
             statusMessage = response.displayMessage ?? "Enviado · dry-run"

@@ -24,6 +24,17 @@ public enum OutboxDeliveryFailure: Error, Equatable, LocalizedError, Sendable {
         }
     }
 
+    public var isTransientTransportFailure: Bool {
+        switch self {
+        case .network:
+            return true
+        case .http(let statusCode):
+            return statusCode == 502 || statusCode == 503 || statusCode == 504
+        case .invalidResponse, .unsafeResponse, .unknown:
+            return false
+        }
+    }
+
     public var storageCode: String {
         switch self {
         case .http(let statusCode):

@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import HermesCore
 import WatchConnectivity
 
 final class IPhoneWatchBootstrapCoordinator: NSObject, ObservableObject {
@@ -82,6 +83,96 @@ final class IPhoneWatchBootstrapCoordinator: NSObject, ObservableObject {
         }
     }
 
+    private func handleCaptureFallback(
+        message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
+    ) {
+        guard
+            let payloadData = message[WatchCaptureFallbackMessage.payloadDataKey] as? Data,
+            payloadData.count <= 64 * 1024,
+            let payload = try? JSONDecoder.hermesCaptureDecoder().decode(
+                CapturePayloadV1.self,
+                from: payloadData
+            ),
+            payload.eventType == CapturePayloadV1.eventType,
+            payload.schema == CapturePayloadV1.schema,
+            payload.schemaVersion == CapturePayloadV1.schemaVersion,
+            !payload.requestID.isEmpty,
+            payload.source.platform == "watchOS",
+            ["watch_app", "app_intent_watch"].contains(payload.source.surface),
+            !payload.capture.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            payload.capture.text.utf8.count <= 16 * 1024,
+            payload.context.dryRun,
+            !payload.context.allowWrite,
+            payload.context.allowFireflyWrite != true
+        else {
+            replyHandler([
+                WatchBootstrapMessage.replyOKKey: false,
+                WatchBootstrapMessage.replyErrorKey: "invalid_capture_payload"
+            ])
+            return
+        }
+
+        guard
+            let rawBaseURL = UserDefaults.standard.string(forKey: "hermes.baseURL"),
+            let baseURL = try? EndpointValidator.normalizedBaseURL(from: rawBaseURL),
+            let secret = try? KeychainRouteSecretStore().loadRouteSecretSynchronously(),
+            !secret.isEmpty
+        else {
+            replyHandler([
+                WatchBootstrapMessage.replyOKKey: false,
+                WatchBootstrapMessage.replyErrorKey: "iphone_not_configured"
+            ])
+            return
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 15
+        configuration.timeoutIntervalForResource = 20
+        let client = WebhookClient(
+            endpoint: EndpointValidator.captureURL(from: baseURL),
+            session: URLSession(configuration: configuration)
+        )
+        Task {
+            do {
+                let response = try await client.submit(payload: payload, secret: secret)
+                guard
+                    response.dryRun == true,
+                    response.plan?.wouldWrite != true,
+                    response.requestID == payload.requestID
+                else {
+                    replyHandler([
+                        WatchBootstrapMessage.replyOKKey: false,
+                        WatchBootstrapMessage.replyErrorKey: "unsafe_response"
+                    ])
+                    return
+                }
+                let responseData = try JSONEncoder.hermesCaptureEncoder().encode(response)
+                replyHandler([
+                    WatchBootstrapMessage.replyOKKey: true,
+                    WatchCaptureFallbackMessage.responseDataKey: responseData
+                ])
+            } catch let error as WebhookClientError {
+                let errorCode: String
+                switch error {
+                case .unacceptableStatus(let statusCode, _):
+                    errorCode = "http_\(statusCode)"
+                case .invalidHTTPResponse:
+                    errorCode = "invalid_http_response"
+                }
+                replyHandler([
+                    WatchBootstrapMessage.replyOKKey: false,
+                    WatchBootstrapMessage.replyErrorKey: errorCode
+                ])
+            } catch {
+                replyHandler([
+                    WatchBootstrapMessage.replyOKKey: false,
+                    WatchBootstrapMessage.replyErrorKey: "iphone_delivery_failed"
+                ])
+            }
+        }
+    }
+
     private func refreshReachability(_ session: WCSession) {
         DispatchQueue.main.async { [weak self] in
             self?.isReachable = session.isReachable
@@ -113,6 +204,23 @@ extension IPhoneWatchBootstrapCoordinator: WCSessionDelegate {
 
     func sessionReachabilityDidChange(_ session: WCSession) {
         refreshReachability(session)
+    }
+
+    func session(
+        _ session: WCSession,
+        didReceiveMessage message: [String: Any],
+        replyHandler: @escaping ([String: Any]) -> Void
+    ) {
+        guard
+            message[WatchBootstrapMessage.commandKey] as? String == WatchCaptureFallbackMessage.command
+        else {
+            replyHandler([
+                WatchBootstrapMessage.replyOKKey: false,
+                WatchBootstrapMessage.replyErrorKey: "unsupported_command"
+            ])
+            return
+        }
+        handleCaptureFallback(message: message, replyHandler: replyHandler)
     }
 
     func sessionDidBecomeInactive(_ session: WCSession) {

@@ -121,6 +121,19 @@ final class HermesCoreTests: XCTestCase {
         XCTAssertEqual(payload.context.allowWrite, false)
     }
 
+    func testFallbackEligibilityOnlyAllowsTransientTransportFailures() {
+        XCTAssertTrue(OutboxDeliveryFailure.network(-1009).isTransientTransportFailure)
+        XCTAssertTrue(OutboxDeliveryFailure.http(502).isTransientTransportFailure)
+        XCTAssertTrue(OutboxDeliveryFailure.http(503).isTransientTransportFailure)
+        XCTAssertTrue(OutboxDeliveryFailure.http(504).isTransientTransportFailure)
+
+        XCTAssertFalse(OutboxDeliveryFailure.http(400).isTransientTransportFailure)
+        XCTAssertFalse(OutboxDeliveryFailure.http(401).isTransientTransportFailure)
+        XCTAssertFalse(OutboxDeliveryFailure.invalidResponse.isTransientTransportFailure)
+        XCTAssertFalse(OutboxDeliveryFailure.unsafeResponse.isTransientTransportFailure)
+        XCTAssertFalse(OutboxDeliveryFailure.unknown.isTransientTransportFailure)
+    }
+
     func testFileOutboxPersistsAndDeduplicatesRequestID() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

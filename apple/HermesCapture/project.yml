@@ -24,8 +24,9 @@ targets:
         embed: true
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture
-      MARKETING_VERSION: 0.2.0
-      CURRENT_PROJECT_VERSION: 2
+      CODE_SIGN_STYLE: Automatic
+      MARKETING_VERSION: 0.3.0
+      CURRENT_PROJECT_VERSION: 3
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -43,8 +44,9 @@ targets:
       - sdk: WatchConnectivity.framework
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture.watchkitapp
-      MARKETING_VERSION: 0.2.0
-      CURRENT_PROJECT_VERSION: 2
+      CODE_SIGN_STYLE: Automatic
+      MARKETING_VERSION: 0.3.0
+      CURRENT_PROJECT_VERSION: 3
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_WKApplication: YES
