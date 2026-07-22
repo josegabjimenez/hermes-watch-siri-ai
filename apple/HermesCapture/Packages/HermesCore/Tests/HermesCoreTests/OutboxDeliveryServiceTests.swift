@@ -53,6 +53,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         XCTAssertEqual(response.displayMessage, "Captura validada · dry-run ✅")
         XCTAssertEqual(items.first?.status, .sent)
         XCTAssertEqual(items.first?.attempts, 1)
+        XCTAssertEqual(items.first?.lastDeliveryPath, .directHTTPS)
         XCTAssertNil(items.first?.lastError)
     }
 
@@ -95,6 +96,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         XCTAssertEqual(items.first?.status, .failed)
         XCTAssertEqual(items.first?.attempts, 1)
         XCTAssertEqual(items.first?.lastError, "http_401")
+        XCTAssertNil(items.first?.lastDeliveryPath)
         XCTAssertFalse(items.first?.lastError?.contains("body-must-not-enter-outbox") ?? true)
         let deliverableItems = try await fixture.store.loadDeliverable()
         XCTAssertEqual(deliverableItems.count, 1)
@@ -130,6 +132,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         XCTAssertEqual(items.first?.status, .failed)
         XCTAssertEqual(items.first?.attempts, 1)
         XCTAssertEqual(items.first?.payload.requestID, "delivery-retry")
+        XCTAssertNil(items.first?.lastDeliveryPath)
 
         let responseBody = Data("""
         {
@@ -174,6 +177,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items.first?.status, .sent)
         XCTAssertEqual(items.first?.attempts, 2)
+        XCTAssertEqual(items.first?.lastDeliveryPath, .directHTTPS)
         XCTAssertNil(items.first?.lastError)
         let remaining = try await fixture.store.loadDeliverable()
         XCTAssertTrue(remaining.isEmpty)

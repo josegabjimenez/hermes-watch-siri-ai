@@ -22,6 +22,7 @@ The project starts with a documented backend staging layer and API contract, the
 - Authenticated iOS/watchOS App Intents and Spanish App Shortcuts in dry-run mode.
 - Transient Watch→iPhone capture fallback that never transfers the HMAC secret.
 - Shared privacy manifest and automatic-signing readiness for physical-device QA.
+- Delivery-path observability (`Directo` vs `vía iPhone`) without exposing capture content.
 
 ## Review policy
 
@@ -79,6 +80,7 @@ docs/
   GPT56_SOL_MAX_REVIEW_002_APP_INTENTS_SIRI.md
   PHYSICAL_DEVICE_READINESS.md
   GPT56_SOL_MAX_REVIEW_003_PHYSICAL_DEVICE_READINESS.md
+  GPT56_SOL_MAX_REVIEW_004_DELIVERY_PATH_OBSERVABILITY.md
   subagent-briefs/
 ```
 

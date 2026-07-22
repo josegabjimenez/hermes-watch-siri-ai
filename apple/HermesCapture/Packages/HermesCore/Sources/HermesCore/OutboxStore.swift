@@ -12,12 +12,18 @@ public enum OutboxStatus: String, Codable, Equatable, Sendable {
     case failed
 }
 
+public enum CaptureDeliveryPath: String, Codable, Equatable, Sendable {
+    case directHTTPS = "direct_https"
+    case iPhoneFallback = "iphone_fallback"
+}
+
 public struct OutboxItem: Codable, Equatable, Identifiable, Sendable {
     public var id: String { payload.requestID }
     public var payload: CapturePayloadV1
     public var status: OutboxStatus
     public var attempts: Int
     public var lastError: String?
+    public var lastDeliveryPath: CaptureDeliveryPath?
     public var createdAt: String
     public var updatedAt: String
 
@@ -26,6 +32,7 @@ public struct OutboxItem: Codable, Equatable, Identifiable, Sendable {
         status: OutboxStatus = .pending,
         attempts: Int = 0,
         lastError: String? = nil,
+        lastDeliveryPath: CaptureDeliveryPath? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -33,6 +40,7 @@ public struct OutboxItem: Codable, Equatable, Identifiable, Sendable {
         self.status = status
         self.attempts = attempts
         self.lastError = lastError
+        self.lastDeliveryPath = lastDeliveryPath
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -42,6 +50,7 @@ public struct OutboxItem: Codable, Equatable, Identifiable, Sendable {
         case status
         case attempts
         case lastError = "last_error"
+        case lastDeliveryPath = "last_delivery_path"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -96,13 +105,19 @@ public actor FileOutboxStore {
         try update(requestID: requestID, now: now) { item in
             item.status = .sending
             item.attempts += 1
+            item.lastDeliveryPath = nil
         }
     }
 
-    public func markSent(requestID: String, now: String) throws {
+    public func markSent(
+        requestID: String,
+        now: String,
+        deliveryPath: CaptureDeliveryPath? = nil
+    ) throws {
         try update(requestID: requestID, now: now) { item in
             item.status = .sent
             item.lastError = nil
+            item.lastDeliveryPath = deliveryPath
         }
     }
 
@@ -110,6 +125,7 @@ public actor FileOutboxStore {
         try update(requestID: requestID, now: now) { item in
             item.status = .failed
             item.lastError = message
+            item.lastDeliveryPath = nil
         }
     }
 

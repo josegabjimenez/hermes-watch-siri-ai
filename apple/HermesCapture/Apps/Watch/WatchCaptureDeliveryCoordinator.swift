@@ -82,7 +82,8 @@ enum WatchCaptureDeliveryCoordinator {
                 let response = try await WatchPhoneCaptureFallback.submit(payload: payload)
                 try await outbox.markSent(
                     requestID: payload.requestID,
-                    now: ISO8601DateFormatter().string(from: Date())
+                    now: ISO8601DateFormatter().string(from: Date()),
+                    deliveryPath: .iPhoneFallback
                 )
                 return response
             } catch {

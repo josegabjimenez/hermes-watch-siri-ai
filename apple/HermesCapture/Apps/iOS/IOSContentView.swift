@@ -126,6 +126,9 @@ struct IOSContentView: View {
                         LabeledContent("Enviados", value: "\(diagnostics.sent)")
                         LabeledContent("Pendientes", value: "\(diagnostics.pending + diagnostics.sending)")
                         LabeledContent("Fallidos", value: "\(diagnostics.failed)")
+                        if let path = diagnostics.lastDeliveryPath {
+                            LabeledContent("Última ruta", value: watchDeliveryPathTitle(path))
+                        }
                     }
 
                     Text("Abre Hermes en ambos simuladores. El secreto viaja solo en un mensaje interactivo y se guarda inmediatamente en Keychain del Watch.")
@@ -392,6 +395,17 @@ struct IOSContentView: View {
         return root
             .appendingPathComponent("HermesCapture", isDirectory: true)
             .appendingPathComponent("outbox.json", isDirectory: false)
+    }
+
+    private func watchDeliveryPathTitle(_ path: String) -> String {
+        switch path {
+        case "direct_https":
+            return "Directo HTTPS"
+        case "iphone_fallback":
+            return "vía iPhone"
+        default:
+            return "Desconocida"
+        }
     }
 
     private func ensureDeviceIdentity() {

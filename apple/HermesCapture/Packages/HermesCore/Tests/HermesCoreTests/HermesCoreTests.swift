@@ -165,12 +165,48 @@ final class HermesCoreTests: XCTestCase {
         XCTAssertEqual(items.first?.status, .pending)
 
         try await store.markSending(requestID: payload.requestID, now: "2026-07-13T20:00:01Z")
-        try await store.markSent(requestID: payload.requestID, now: "2026-07-13T20:00:02Z")
+        try await store.markSent(
+            requestID: payload.requestID,
+            now: "2026-07-13T20:00:02Z",
+            deliveryPath: .iPhoneFallback
+        )
         items = try await store.loadAll()
 
         XCTAssertEqual(items.first?.status, .sent)
         XCTAssertEqual(items.first?.attempts, 1)
+        XCTAssertEqual(items.first?.lastDeliveryPath, .iPhoneFallback)
         XCTAssertNil(items.first?.lastError)
+    }
+
+    func testOutboxItemDecodesLegacyJSONWithoutDeliveryPath() throws {
+        let payload = CapturePayloadV1(
+            requestID: "legacy-outbox-item",
+            createdAt: "2026-07-22T12:00:00Z",
+            source: CaptureSource(
+                appVersion: "0.3.0",
+                platform: "watchOS",
+                osVersion: "26.5",
+                deviceID: "unit-device",
+                surface: "watch_app"
+            ),
+            route: .general,
+            capture: CaptureText(modality: "watch_text", text: "legacy capture")
+        )
+        let item = OutboxItem(
+            payload: payload,
+            status: .sent,
+            attempts: 1,
+            createdAt: payload.createdAt,
+            updatedAt: payload.createdAt
+        )
+        let data = try JSONEncoder.hermesCaptureEncoder().encode([item])
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [[String: Any]])
+        object[0].removeValue(forKey: "last_delivery_path")
+        let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder.hermesCaptureDecoder().decode([OutboxItem].self, from: legacyData)
+        XCTAssertEqual(decoded.first?.status, .sent)
+        XCTAssertNil(decoded.first?.lastDeliveryPath)
     }
 
     func testMultipleStoreInstancesDoNotLoseConcurrentEnqueues() async throws {

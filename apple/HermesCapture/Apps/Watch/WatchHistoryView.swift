@@ -38,6 +38,9 @@ struct WatchHistoryView: View {
 
                         HStack {
                             Text("Intentos: \(item.attempts)")
+                            if let path = item.lastDeliveryPath {
+                                Text("· \(deliveryPathTitle(path))")
+                            }
                             if let lastError = item.lastError {
                                 Text("· \(lastError)")
                             }
@@ -112,6 +115,15 @@ struct WatchHistoryView: View {
             return "Enviado"
         case .failed:
             return "Falló"
+        }
+    }
+
+    private func deliveryPathTitle(_ path: CaptureDeliveryPath) -> String {
+        switch path {
+        case .directHTTPS:
+            return "Directo"
+        case .iPhoneFallback:
+            return "vía iPhone"
         }
     }
 

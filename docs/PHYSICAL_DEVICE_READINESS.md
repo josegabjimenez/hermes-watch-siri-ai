@@ -1,8 +1,35 @@
 # Physical-device readiness and Watch→iPhone capture fallback
 
-**Version:** 0.3.0 (3)
+**Version:** 0.3.1 (4)
 
-**Status:** implemented; Xcode build and paired simulator/physical-device validation required.
+**Status:** paired-simulator fallback and full-outage retry verified by Jose on 2026-07-22; physical-device validation remains.
+
+## Verified paired-simulator QA — 2026-07-22 America/Bogota
+
+Jose confirmed both required scenarios:
+
+```text
+Direct Watch path simulated offline
+→ iPhone fallback
+→ Enviado
+→ Intentos: 1
+```
+
+and:
+
+```text
+Direct Watch path simulated offline
++ iPhone fallback disabled
+→ Falló
+→ Intentos: 1
+→ Debug switches disabled
+→ Reintentar pendientes
+→ same request_id
+→ Enviado
+→ Intentos: 2
+```
+
+This verifies that interactive fallback does not replace the durable Watch outbox and that full outage recovery preserves idempotency. No external write occurred.
 
 ## Purpose
 
@@ -70,6 +97,19 @@ HTTP 504
 ```
 
 If direct delivery succeeds but its response is lost, fallback/retry reuses the same request ID. The BFF ledger therefore returns a duplicate safely instead of creating a second effect.
+
+## Delivery-path observability
+
+Version 0.3.1 (4) persists a bounded delivery-path enum on successful outbox items:
+
+```text
+direct_https
+iphone_fallback
+```
+
+The Watch history presents these as `Directo` and `vía iPhone`. Aggregate Watch diagnostics expose only the most recent successful path to the iPhone companion as `Directo HTTPS` or `vía iPhone`; no capture text is included. Existing outbox JSON without this optional field remains decodable.
+
+This lets physical-device QA determine which network route actually succeeded instead of inferring it from timing or simulator switches.
 
 ## Durability model
 

@@ -58,7 +58,13 @@ final class WatchBootstrapReceiver: NSObject, ObservableObject {
             outboxReadable = false
         }
 
-        return [
+        let lastDeliveryPath = items
+            .filter { $0.status == .sent && $0.lastDeliveryPath != nil }
+            .max { $0.updatedAt < $1.updatedAt }?
+            .lastDeliveryPath?
+            .rawValue
+
+        var reply: [String: Any] = [
             WatchBootstrapMessage.replyOKKey: true,
             WatchDiagnosticsMessage.configuredKey: configured,
             WatchDiagnosticsMessage.outboxReadableKey: outboxReadable,
@@ -68,6 +74,10 @@ final class WatchBootstrapReceiver: NSObject, ObservableObject {
             WatchDiagnosticsMessage.sentKey: items.filter { $0.status == .sent }.count,
             WatchDiagnosticsMessage.failedKey: items.filter { $0.status == .failed }.count
         ]
+        if let lastDeliveryPath {
+            reply[WatchDiagnosticsMessage.lastDeliveryPathKey] = lastDeliveryPath
+        }
+        return reply
     }
 
     private var outboxURL: URL {

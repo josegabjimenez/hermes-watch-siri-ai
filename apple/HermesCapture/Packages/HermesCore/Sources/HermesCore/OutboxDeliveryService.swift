@@ -89,7 +89,8 @@ public actor OutboxDeliveryService {
             }
             try await store.markSent(
                 requestID: payload.requestID,
-                now: nowISO8601()
+                now: nowISO8601(),
+                deliveryPath: .directHTTPS
             )
             return response
         } catch {

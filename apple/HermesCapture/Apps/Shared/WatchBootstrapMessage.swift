@@ -29,6 +29,7 @@ enum WatchDiagnosticsMessage {
     static let sendingKey = "outbox_sending"
     static let sentKey = "outbox_sent"
     static let failedKey = "outbox_failed"
+    static let lastDeliveryPathKey = "last_delivery_path"
 
     static var request: [String: Any] {
         [WatchBootstrapMessage.commandKey: command]
@@ -43,6 +44,7 @@ struct WatchOutboxDiagnostics: Equatable, Sendable {
     let sending: Int
     let sent: Int
     let failed: Int
+    let lastDeliveryPath: String?
 
     init?(reply: [String: Any]) {
         guard
@@ -66,6 +68,14 @@ struct WatchOutboxDiagnostics: Equatable, Sendable {
         else {
             return nil
         }
+        let lastDeliveryPath = reply[WatchDiagnosticsMessage.lastDeliveryPathKey] as? String
+        guard
+            lastDeliveryPath == nil ||
+            lastDeliveryPath == "direct_https" ||
+            lastDeliveryPath == "iphone_fallback"
+        else {
+            return nil
+        }
         self.configured = configured
         self.outboxReadable = outboxReadable
         self.total = total
@@ -73,6 +83,7 @@ struct WatchOutboxDiagnostics: Equatable, Sendable {
         self.sending = sending
         self.sent = sent
         self.failed = failed
+        self.lastDeliveryPath = lastDeliveryPath
     }
 }
 

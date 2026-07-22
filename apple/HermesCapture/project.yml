@@ -25,8 +25,8 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture
       CODE_SIGN_STYLE: Automatic
-      MARKETING_VERSION: 0.3.0
-      CURRENT_PROJECT_VERSION: 3
+      MARKETING_VERSION: 0.3.1
+      CURRENT_PROJECT_VERSION: 4
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -45,8 +45,8 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture.watchkitapp
       CODE_SIGN_STYLE: Automatic
-      MARKETING_VERSION: 0.3.0
-      CURRENT_PROJECT_VERSION: 3
+      MARKETING_VERSION: 0.3.1
+      CURRENT_PROJECT_VERSION: 4
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_WKApplication: YES
