@@ -131,7 +131,7 @@ struct IOSContentView: View {
                         }
                     }
 
-                    Text("Abre Hermes en ambos simuladores. El secreto viaja solo en un mensaje interactivo y se guarda inmediatamente en Keychain del Watch.")
+                    Text("Abre Hermes en el iPhone y el Apple Watch. El secreto viaja solo en un mensaje interactivo y se guarda inmediatamente en Keychain del Watch.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
