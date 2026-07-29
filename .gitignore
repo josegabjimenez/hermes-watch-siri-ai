@@ -29,6 +29,8 @@ Secrets.*
 
 # macOS / Xcode / SwiftPM local output
 .DS_Store
+# Generated locally by XcodeGen; project.yml is the public source of truth.
+apple/HermesCapture/HermesCapture.xcodeproj/
 DerivedData/
 build/
 .build/
