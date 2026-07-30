@@ -23,6 +23,7 @@ The project starts with a documented backend staging layer and API contract, the
 - Transient Watch→iPhone capture fallback that never transfers the HMAC secret.
 - Shared privacy manifest and automatic-signing readiness for physical-device QA.
 - Delivery-path observability (`Directo` vs `vía iPhone`) without exposing capture content.
+- Physical paired-device dry-run QA passed for direct HTTPS, iPhone fallback, outage persistence, and same-item retry.
 
 ## Review policy
 

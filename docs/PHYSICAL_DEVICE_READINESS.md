@@ -2,7 +2,7 @@
 
 **Version:** 0.3.1 (4)
 
-**Status:** physical paired-device installation, secure bootstrap, direct Watch HTTPS, and interactive iPhone fallback verified in dry-run; physical full-outage retry remains.
+**Status:** physical paired-device reliability QA passed in dry-run: secure bootstrap, direct Watch HTTPS, interactive iPhone fallback, full-outage preservation, and same-item retry.
 
 ## Verified physical-device QA — 2026-07-30 America/Bogota
 
@@ -32,9 +32,26 @@ iPhone aggregate diagnostics: latest route vía iPhone
 
 This confirms the physical Watch kept its persisted payload, relayed no secret, and accepted the iPhone response only after the existing dry-run/no-write/request-ID checks.
 
+Finally, Jose enabled both physical Debug gates and confirmed durable outage recovery:
+
+```text
+HERMES_SIMULATE_OFFLINE=1
+HERMES_DISABLE_PHONE_FALLBACK=1
+same outbox item: Falló
+attempts: 1
+sanitized error: network_-1009
+
+both gates disabled
+Reintentar pendientes
+same outbox item: Enviado
+attempts: 2
+```
+
+The item was retried rather than recaptured, preserving its original payload and request ID for BFF idempotency.
+
 The private MagicDNS hostname, route secret, Apple Team ID, provisioning material, and device identifiers were not added to Git or this document. Server-side writes remained disabled.
 
-Physical full-outage preservation and same-request-ID retry validation are still required before physical reliability QA is complete.
+The physical reliability matrix for version 0.3.1 (4) is complete. Shortcut/Siri hardware discovery and archive privacy-report inspection remain separate release-readiness checks.
 
 ## Verified paired-simulator QA — 2026-07-22 America/Bogota
 

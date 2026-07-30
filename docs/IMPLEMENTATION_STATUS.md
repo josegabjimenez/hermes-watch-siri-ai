@@ -195,7 +195,7 @@ Physical-device build 0.3.1 (4): installed on paired iPhone and Apple Watch
 Physical BFF health, Keychain provisioning, and Watch bootstrap: user-verified
 Physical Watch direct HTTPS dry-run: user-verified Enviado, attempt 1, route direct_https
 Physical Watch→iPhone fallback: user-verified Enviado, attempt 1, route iphone_fallback
-Physical full-outage preservation and same-request-ID retry: pending
+Physical full-outage preservation and same-item retry: user-verified Falló attempt 1 → Enviado attempt 2
 ```
 
 No external write occurred.
@@ -204,7 +204,6 @@ No external write occurred.
 
 Keep writes disabled. Next validation lane:
 
-1. On physical hardware, set both `HERMES_SIMULATE_OFFLINE=1` and `HERMES_DISABLE_PHONE_FALLBACK=1`; require failed attempt 1, then disable both switches and retry the same request ID to `Enviado`, attempt 2.
-2. Verify Shortcut/Siri on the physical iPhone and Apple Watch.
-3. Inspect the Xcode archive privacy report.
-4. Perform another GPT-5.6-sol Max Thinking review before any external write is enabled.
+1. Verify Shortcut/Siri on the physical iPhone and Apple Watch.
+2. Inspect the Xcode archive privacy report.
+3. Perform another GPT-5.6-sol Max Thinking review before any external write is enabled.

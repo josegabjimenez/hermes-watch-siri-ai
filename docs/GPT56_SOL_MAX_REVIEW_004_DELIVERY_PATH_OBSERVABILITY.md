@@ -98,9 +98,11 @@ persisted route: direct_https / Directo
 physical Watch fallback dry-run capture: Enviado
 attempts: 1
 persisted route: iphone_fallback / vía iPhone
+physical full outage: Falló, attempt 1, network_-1009
+same outbox item after retry: Enviado, attempt 2
 ```
 
-This satisfies the direct-route and interactive-fallback physical conditions. Physical full-outage preservation and same-request-ID retry remain pending.
+This satisfies the direct-route, interactive-fallback, and durable-outage physical conditions. The delivery-path observability review is complete for version 0.3.1 (4).
 
 ## Conclusion
 
