@@ -2,7 +2,26 @@
 
 **Version:** 0.3.1 (4)
 
-**Status:** paired-simulator fallback and full-outage retry verified by Jose on 2026-07-22; physical-device validation remains.
+**Status:** physical paired-device installation, secure bootstrap, and direct Watch HTTPS dry-run verified; physical iPhone fallback and full-outage retry remain.
+
+## Verified physical-device QA — 2026-07-30 America/Bogota
+
+Jose confirmed the following on a physical paired iPhone and Apple Watch running beta Apple OS software with the matching beta Xcode toolchain:
+
+```text
+iOS companion installed and launched
+watchOS companion installed and launched
+BFF health check: dry-run
+route-scoped HMAC secret stored in iPhone Keychain
+interactive configuration bootstrap acknowledged by Watch
+physical Watch capture: Enviado
+attempts: 1
+delivery path: Directo / direct_https
+```
+
+The private MagicDNS hostname, route secret, Apple Team ID, provisioning material, and device identifiers were not added to Git or this document. Server-side writes remained disabled.
+
+Physical `iphone_fallback` and full-outage retry validation are still required before physical reliability QA is complete.
 
 ## Verified paired-simulator QA — 2026-07-22 America/Bogota
 

@@ -191,19 +191,20 @@ Watch→iPhone capture fallback: paired-simulator QA verified
 Full outage → same-request-ID retry: paired-simulator QA verified
 Delivery-path persistence and sanitized last-route diagnostics: implemented, Xcode QA pending
 Privacy manifest: parsed and validated, Xcode archive report pending
-Physical-device build: version 0.3.1 (4)
+Physical-device build 0.3.1 (4): installed on paired iPhone and Apple Watch
+Physical BFF health, Keychain provisioning, and Watch bootstrap: user-verified
+Physical Watch direct HTTPS dry-run: user-verified Enviado, attempt 1, route direct_https
+Physical Watch→iPhone fallback and full-outage retry: pending
 ```
 
 No external write occurred.
 
 ## Recommended next step
 
-Keep writes disabled. Next implementation lane:
+Keep writes disabled. Next validation lane:
 
-1. Regenerate and build iOS and Watch targets with full Xcode 26.6.
-2. Keep the paired iPhone app open and verify simulated direct failure → iPhone fallback → Watch `Enviado`.
-3. Verify full outage with both Debug switches, then retry the same request ID.
-4. Install version 0.3.1 (4) on a physical paired iPhone/Apple Watch.
-5. Determine whether the physical Watch can route directly to tailnet MagicDNS; verify iPhone fallback when it cannot.
-6. Verify Shortcut/Siri and inspect the Xcode archive privacy report.
-7. Perform another GPT-5.6-sol Max Thinking review before any external write is enabled.
+1. On physical hardware, force direct Watch failure with `HERMES_SIMULATE_OFFLINE=1` while leaving phone fallback enabled; require `Enviado`, attempt 1, route `iphone_fallback`.
+2. On physical hardware, also set `HERMES_DISABLE_PHONE_FALLBACK=1`; require failed attempt 1, then disable both switches and retry the same request ID to `Enviado`, attempt 2.
+3. Verify Shortcut/Siri on the physical iPhone and Apple Watch.
+4. Inspect the Xcode archive privacy report.
+5. Perform another GPT-5.6-sol Max Thinking review before any external write is enabled.

@@ -85,6 +85,20 @@ Apple UI sources: parse passed
 5. Repeat on physical paired devices.
 6. Keep writes disabled.
 
+## Post-review physical evidence — 2026-07-30
+
+Jose verified version 0.3.1 (4) on a physical paired iPhone and Apple Watch using a watchOS 27-compatible Xcode 27 beta toolchain:
+
+```text
+secure iPhone Keychain configuration: passed
+interactive Watch bootstrap: passed
+physical Watch dry-run capture: Enviado
+attempts: 1
+persisted route: direct_https / Directo
+```
+
+This satisfies the direct-route physical condition. Physical `iphone_fallback` and full-outage retry remain pending.
+
 ## Conclusion
 
 The change is low-risk, privacy-preserving, backward-compatible, and necessary to interpret physical networking behavior accurately.
