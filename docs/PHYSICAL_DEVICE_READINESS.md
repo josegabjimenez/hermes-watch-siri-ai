@@ -2,7 +2,7 @@
 
 **Version:** 0.3.1 (4)
 
-**Status:** physical paired-device installation, secure bootstrap, and direct Watch HTTPS dry-run verified; physical iPhone fallback and full-outage retry remain.
+**Status:** physical paired-device installation, secure bootstrap, direct Watch HTTPS, and interactive iPhone fallback verified in dry-run; physical full-outage retry remains.
 
 ## Verified physical-device QA — 2026-07-30 America/Bogota
 
@@ -19,9 +19,22 @@ attempts: 1
 delivery path: Directo / direct_https
 ```
 
+Jose then launched the physical Watch app with direct transport failure simulated while leaving interactive phone fallback enabled:
+
+```text
+HERMES_SIMULATE_OFFLINE=1
+HERMES_DISABLE_PHONE_FALLBACK unset
+physical Watch capture: Enviado
+attempts: 1
+delivery path: vía iPhone / iphone_fallback
+iPhone aggregate diagnostics: latest route vía iPhone
+```
+
+This confirms the physical Watch kept its persisted payload, relayed no secret, and accepted the iPhone response only after the existing dry-run/no-write/request-ID checks.
+
 The private MagicDNS hostname, route secret, Apple Team ID, provisioning material, and device identifiers were not added to Git or this document. Server-side writes remained disabled.
 
-Physical `iphone_fallback` and full-outage retry validation are still required before physical reliability QA is complete.
+Physical full-outage preservation and same-request-ID retry validation are still required before physical reliability QA is complete.
 
 ## Verified paired-simulator QA — 2026-07-22 America/Bogota
 

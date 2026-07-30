@@ -95,9 +95,12 @@ interactive Watch bootstrap: passed
 physical Watch dry-run capture: Enviado
 attempts: 1
 persisted route: direct_https / Directo
+physical Watch fallback dry-run capture: Enviado
+attempts: 1
+persisted route: iphone_fallback / vía iPhone
 ```
 
-This satisfies the direct-route physical condition. Physical `iphone_fallback` and full-outage retry remain pending.
+This satisfies the direct-route and interactive-fallback physical conditions. Physical full-outage preservation and same-request-ID retry remain pending.
 
 ## Conclusion
 
