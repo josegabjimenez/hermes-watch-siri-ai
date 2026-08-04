@@ -99,7 +99,7 @@ python3 -m py_compile backend/mobile_capture_staging_server.py backend/scripts/s
 # exit 0
 
 cd backend && PYTHONPATH=. python3 -m unittest discover -s tests -v
-# Ran 9 tests in 0.001s — OK
+# Ran 10 tests — OK
 ```
 
 ## Security notes
@@ -178,7 +178,7 @@ Megan expense route: user-verified dry-run
 Aura grocery route: user-verified dry-run
 Aura reminder route: user-verified dry-run
 Argos general route: user-verified dry-run
-HermesCore XCTest suite: 13 tests, 0 failures
+HermesCore XCTest suite: 15 tests, 0 failures
 Concurrent UI/App Intent outbox locking: automated test passed
 Network failure → same-request-ID retry: automated test passed
 Transient-fallback eligibility policy: automated test passed
@@ -199,6 +199,8 @@ Physical BFF health, Keychain provisioning, and Watch bootstrap: user-verified
 Physical Watch direct HTTPS dry-run: user-verified Enviado, attempt 1, route direct_https
 Physical Watch→iPhone fallback: user-verified Enviado, attempt 1, route iphone_fallback
 Physical full-outage preservation and same-item retry: user-verified Falló attempt 1 → Enviado attempt 2
+Final GPT-5.6-sol Max Thinking review: approved to design write enablement with conditions
+Candidate 0.3.2 (5): response/request binding, strict would_write gate, concurrent idempotency, and storage-permission hardening implemented
 ```
 
 No external write occurred.
@@ -207,8 +209,9 @@ No external write occurred.
 
 Keep writes disabled. Next validation lane:
 
-1. Reconcile the independent GPT-5.6-sol Max Thinking final review.
-2. Verify the expense, reminder, and grocery Siri phrases individually if every phrase is a release requirement.
-3. Verify locked-device authentication behavior.
-4. Validate fresh TestFlight install and secure bootstrap before distribution.
-5. Design write enablement separately with explicit domain gates; do not infer permission from dry-run readiness.
+1. Regenerate Xcode and smoke-test candidate 0.3.2 (5) on paired physical devices.
+2. Repeat archive/privacy inspection for 0.3.2 (5).
+3. Verify the expense, reminder, and grocery Siri phrases individually if every phrase is a release requirement.
+4. Verify locked-device authentication behavior.
+5. Validate fresh TestFlight install and secure bootstrap before distribution.
+6. Design write enablement separately under Review 005 P1 gates; do not infer permission from dry-run readiness.

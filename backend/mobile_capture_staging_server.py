@@ -70,7 +70,8 @@ def load_secret(path: Path) -> bytes:
 
 
 def init_db(path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+    path.parent.chmod(0o700)
     with sqlite3.connect(path) as conn:
         conn.execute(
             """
@@ -86,6 +87,7 @@ def init_db(path: Path) -> None:
             """
         )
         conn.commit()
+    path.chmod(0o600)
 
 
 def now_iso() -> str:
@@ -226,9 +228,9 @@ def plan_capture(payload: dict[str, Any]) -> dict[str, Any]:
     domain, agent, intent = canonical_domain(payload)
     capture = payload.get("capture") or {}
     text = str(capture.get("text") or "").strip()
-    context = payload.get("context") or {}
-    dry_run = bool(context.get("dry_run", True)) or context.get("allow_write") is False or context.get("allow_firefly_write") is False
 
+    # This staging implementation is server-locked to dry-run. Client context
+    # flags can make a request more restrictive but can never enable writes.
     base: dict[str, Any] = {
         "status": "accepted",
         "dry_run": True,
@@ -237,7 +239,11 @@ def plan_capture(payload: dict[str, Any]) -> dict[str, Any]:
         "display_message": "Captura validada · dry-run ✅",
         "question": None,
         "plan": {"side_effects": [], "would_write": False, "notes": "No external writes in staging."},
-        "gates_missing": ["persistent production ledger", "domain write flag", "physical Watch QA"],
+        "gates_missing": [
+            "persistent production ledger",
+            "domain write flag",
+            "external write reconciliation",
+        ],
     }
     if not text:
         base.update(status="needs_confirmation", display_message="No entendí · intenta otra vez", question="¿Qué quieres capturar?")
@@ -382,7 +388,12 @@ class MobileCaptureHandler(BaseHTTPRequestHandler):
         # this is cheap and keeps the staging server from dropping a valid
         # capture with an empty TCP reply.
         init_db(self.cfg.ledger_path)
-        with sqlite3.connect(self.cfg.ledger_path) as conn:
+        with sqlite3.connect(self.cfg.ledger_path, timeout=5.0) as conn:
+            # Serialize the read-before-insert decision. Without an immediate
+            # transaction, concurrent retries can both observe a missing row
+            # and one connection then fails its UNIQUE insert with an empty
+            # HTTP response instead of receiving the cached result.
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT payload_hash, response_json FROM mobile_capture_ledger WHERE request_id = ?",
                 (request_id,),

@@ -47,7 +47,7 @@ enum WatchPhoneCaptureFallback {
                         from: responseData
                     ),
                     response.dryRun == true,
-                    response.plan?.wouldWrite != true,
+                    response.plan?.wouldWrite == false,
                     response.requestID == payload.requestID
                 else {
                     continuation.resume(throwing: WatchPhoneFallbackError.invalidResponse)

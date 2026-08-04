@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import hmac
 import json
+import tempfile
+import threading
 import time
 import unittest
 from datetime import datetime
+from pathlib import Path
+from unittest import mock
+from urllib import request
 from zoneinfo import ZoneInfo
 
 import mobile_capture_staging_server as srv
@@ -112,6 +118,93 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
         self.assertFalse(valid)
         self.assertEqual(status, 409)
         self.assertEqual(response["error"], "X-Request-ID mismatch")
+
+    def test_concurrent_duplicate_requests_return_cached_result(self):
+        secret = b"concurrent-test-secret"
+        payload = {
+            "event_type": "mobile_capture.v1",
+            "schema": "hermes.mobile_capture",
+            "schema_version": 1,
+            "request_id": "concurrent-request-id",
+            "created_at": "2026-08-04T22:00:00Z",
+            "source": {
+                "platform": "watchOS",
+                "surface": "watch_app",
+                "app_version": "0.3.1",
+                "os_version": "27.0",
+                "device_id": "unit-device",
+            },
+            "route": {
+                "agent": "argos",
+                "intent": "general_capture",
+                "domain": "argos.general_capture",
+            },
+            "capture": {"modality": "watch_dictation", "text": "concurrent test"},
+            "context": {"dry_run": True, "allow_write": False, "allow_firefly_write": False},
+        }
+        raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        original_plan = srv.plan_capture
+
+        def slow_plan(value):
+            time.sleep(0.05)
+            return original_plan(value)
+
+        class QuietHandler(srv.MobileCaptureHandler):
+            def log_message(self, fmt, *args):
+                pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            cfg = srv.Config(
+                secret=secret,
+                ledger_path=Path(directory) / "ledger.sqlite",
+                host="127.0.0.1",
+                port=0,
+            )
+            srv.init_db(cfg.ledger_path)
+            self.assertEqual(cfg.ledger_path.parent.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(cfg.ledger_path.stat().st_mode & 0o777, 0o600)
+            server = srv.ThreadingHTTPServer((cfg.host, 0), QuietHandler)
+            server.cfg = cfg
+            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+            server_thread.start()
+            endpoint = f"http://127.0.0.1:{server.server_address[1]}/webhooks/mobile-capture-v1"
+            worker_count = 8
+            barrier = threading.Barrier(worker_count)
+
+            def send(_):
+                barrier.wait()
+                timestamp = str(int(time.time()))
+                signature = hmac.new(
+                    secret,
+                    timestamp.encode("utf-8") + b"." + raw,
+                    hashlib.sha256,
+                ).hexdigest()
+                req = request.Request(
+                    endpoint,
+                    data=raw,
+                    method="POST",
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Webhook-Timestamp": timestamp,
+                        "X-Webhook-Signature-V2": signature,
+                        "X-Request-ID": payload["request_id"],
+                    },
+                )
+                with request.urlopen(req, timeout=5) as response:
+                    return response.status, json.loads(response.read())["status"]
+
+            try:
+                with mock.patch.object(srv, "plan_capture", side_effect=slow_plan):
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+                        results = list(executor.map(send, range(worker_count)))
+            finally:
+                server.shutdown()
+                server_thread.join()
+                server.server_close()
+
+        self.assertEqual([status for status, _ in results], [200] * worker_count)
+        self.assertEqual(sum(result == (200, "accepted") for result in results), 1)
+        self.assertEqual(sum(result == (200, "duplicate") for result in results), worker_count - 1)
 
 
 if __name__ == "__main__":

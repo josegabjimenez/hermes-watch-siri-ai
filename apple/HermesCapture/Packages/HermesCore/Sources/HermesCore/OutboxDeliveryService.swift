@@ -84,7 +84,11 @@ public actor OutboxDeliveryService {
             }
             #endif
             let response = try await client.submit(payload: payload, secret: secret)
-            guard response.dryRun == true, response.plan?.wouldWrite != true else {
+            guard
+                response.dryRun == true,
+                response.plan?.wouldWrite == false,
+                response.requestID == payload.requestID
+            else {
                 throw OutboxDeliveryFailure.unsafeResponse
             }
             try await store.markSent(

@@ -138,7 +138,7 @@ final class IPhoneWatchBootstrapCoordinator: NSObject, ObservableObject {
                 let response = try await client.submit(payload: payload, secret: secret)
                 guard
                     response.dryRun == true,
-                    response.plan?.wouldWrite != true,
+                    response.plan?.wouldWrite == false,
                     response.requestID == payload.requestID
                 else {
                     replyHandler([

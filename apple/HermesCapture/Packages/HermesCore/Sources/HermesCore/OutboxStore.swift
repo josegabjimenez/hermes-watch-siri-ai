@@ -143,7 +143,15 @@ public actor FileOutboxStore {
         let directory = fileURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try encoder.encode(items)
-        try data.write(to: fileURL, options: [.atomic])
+        #if os(iOS) || os(watchOS)
+        let writeOptions: Data.WritingOptions = [
+            .atomic,
+            .completeFileProtectionUntilFirstUserAuthentication
+        ]
+        #else
+        let writeOptions: Data.WritingOptions = [.atomic]
+        #endif
+        try data.write(to: fileURL, options: writeOptions)
     }
 
     private func withExclusiveFileLock<T>(_ body: () throws -> T) throws -> T {

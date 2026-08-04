@@ -57,6 +57,107 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         XCTAssertNil(items.first?.lastError)
     }
 
+    func testMismatchedResponseRequestIDIsRejectedAsUnsafe() async throws {
+        let fixture = try await makeFixture(requestID: "delivery-request-id")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let responseBody = Data("""
+        {
+          "status":"accepted",
+          "dry_run":true,
+          "request_id":"different-request-id",
+          "domain":"argos.general_capture",
+          "display_message":"Captura validada · dry-run ✅",
+          "plan":{"would_write":false,"side_effects":[]}
+        }
+        """.utf8)
+        let client = WebhookClient(
+            endpoint: URL(string: "https://example.invalid/webhooks/mobile-capture-v1")!,
+            session: URLSessionStub { request in
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )
+                )
+                return (responseBody, response)
+            }
+        )
+        let delivery = OutboxDeliveryService(
+            store: fixture.store,
+            client: client,
+            nowISO8601: { "2026-07-13T22:00:01Z" }
+        )
+
+        do {
+            _ = try await delivery.deliver(
+                payload: fixture.payload,
+                secret: "unit-test-secret"
+            )
+            XCTFail("Expected mismatched request ID to be rejected")
+        } catch let failure as OutboxDeliveryFailure {
+            XCTAssertEqual(failure, .unsafeResponse)
+        }
+
+        let items = try await fixture.store.loadAll()
+        XCTAssertEqual(items.first?.status, .failed)
+        XCTAssertEqual(items.first?.attempts, 1)
+        XCTAssertEqual(items.first?.lastError, "unsafe_response")
+        XCTAssertNil(items.first?.lastDeliveryPath)
+    }
+
+    func testMissingWouldWriteSafetyGateIsRejectedAsUnsafe() async throws {
+        let fixture = try await makeFixture(requestID: "delivery-missing-plan")
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let responseBody = Data("""
+        {
+          "status":"accepted",
+          "dry_run":true,
+          "request_id":"delivery-missing-plan",
+          "domain":"argos.general_capture",
+          "display_message":"Captura validada · dry-run ✅"
+        }
+        """.utf8)
+        let client = WebhookClient(
+            endpoint: URL(string: "https://example.invalid/webhooks/mobile-capture-v1")!,
+            session: URLSessionStub { request in
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )
+                )
+                return (responseBody, response)
+            }
+        )
+        let delivery = OutboxDeliveryService(
+            store: fixture.store,
+            client: client,
+            nowISO8601: { "2026-07-13T22:00:01Z" }
+        )
+
+        do {
+            _ = try await delivery.deliver(
+                payload: fixture.payload,
+                secret: "unit-test-secret"
+            )
+            XCTFail("Expected missing would_write gate to be rejected")
+        } catch let failure as OutboxDeliveryFailure {
+            XCTAssertEqual(failure, .unsafeResponse)
+        }
+
+        let items = try await fixture.store.loadAll()
+        XCTAssertEqual(items.first?.status, .failed)
+        XCTAssertEqual(items.first?.attempts, 1)
+        XCTAssertEqual(items.first?.lastError, "unsafe_response")
+        XCTAssertNil(items.first?.lastDeliveryPath)
+    }
+
     func testHTTPFailureStoresOnlySanitizedCode() async throws {
         let fixture = try await makeFixture(requestID: "delivery-unauthorized")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
