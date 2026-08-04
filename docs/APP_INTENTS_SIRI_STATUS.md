@@ -1,6 +1,6 @@
 # App Intents and Siri dry-run capture
 
-**Status:** iOS App Intent verified through a manually created Shortcut on iOS Simulator; Auto Shortcuts remain blocked by the known Xcode 26/iOS 26.5 simulator regression. watchOS/physical-device validation remains.
+**Status:** general-capture App Intent verified through manual Shortcut and Siri on physical iPhone, plus native Siri execution on physical Apple Watch. The historical simulator Auto Shortcuts regression remains simulator-only.
 
 ## Verified iPhone Shortcut result — 2026-07-20 America/Bogota
 
@@ -19,6 +19,21 @@ HMAC V2 → Tailscale HTTPS → synchronous BFF → display response
 ```
 
 The manually created Shortcut works. Only simulator Auto Shortcut discovery remains affected by the Apple regression below. No external write occurred.
+
+## Verified physical Siri and Shortcuts result — 2026-08-04 America/Bogota
+
+Jose verified the general-capture intent on the paired physical devices:
+
+```text
+manual iPhone Shortcut: dry-run response and iPhone outbox sent count +1
+iPhone Siri phrase "Capturar con Hermes": dry-run response and sent count +1
+Apple Watch Siri phrase "Capturar con Hermes": dry-run response
+native Watch evidence: new item in Watch-local history, Enviado, attempt 1
+```
+
+The Watch-local history item distinguishes native watchOS execution from an iPhone-delegated Shortcut. The expense, reminder, and grocery phrases remain individually unverified on physical Siri, although they share the same runner and tested payload/delivery core.
+
+No capture content, endpoint, secret, Team ID, or device identifier is recorded in this evidence. No external write occurred.
 
 ## Intents
 
@@ -156,10 +171,7 @@ Do not rewrite a valid `AppShortcutsProvider` solely to work around this simulat
 
 ## Remaining Apple QA
 
-- compile both generated Xcode targets and inspect App Intents metadata extraction;
-- verify shortcuts appear in the Shortcuts app;
-- invoke each Spanish phrase on iPhone Simulator;
-- invoke on Watch Simulator where Siri support permits;
-- run on a physical Apple Watch without relying on iPhone reachability;
-- verify authentication and locked-device behavior;
-- verify privacy manifest/App Privacy declarations before distribution.
+- invoke the expense, reminder, and grocery Spanish phrases individually on physical iPhone and Watch if release coverage requires every phrase;
+- verify authentication behavior while each device is locked;
+- validate a fresh TestFlight install and bootstrap;
+- keep the archive privacy artifact evidence with release records.

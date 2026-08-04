@@ -24,6 +24,7 @@ The project starts with a documented backend staging layer and API contract, the
 - Shared privacy manifest and automatic-signing readiness for physical-device QA.
 - Delivery-path observability (`Directo` vs `vía iPhone`) without exposing capture content.
 - Physical paired-device dry-run QA passed for direct HTTPS, iPhone fallback, outage persistence, and same-item retry.
+- Physical iPhone/Watch Siri capture and archive privacy-manifest gates passed.
 
 ## Review policy
 
@@ -82,6 +83,7 @@ docs/
   PHYSICAL_DEVICE_READINESS.md
   GPT56_SOL_MAX_REVIEW_003_PHYSICAL_DEVICE_READINESS.md
   GPT56_SOL_MAX_REVIEW_004_DELIVERY_PATH_OBSERVABILITY.md
+  ARCHIVE_PRIVACY_REPORT_STATUS.md
   subagent-briefs/
 ```
 

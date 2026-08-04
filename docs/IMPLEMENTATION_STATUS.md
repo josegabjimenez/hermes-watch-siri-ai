@@ -185,12 +185,15 @@ Transient-fallback eligibility policy: automated test passed
 Legacy outbox migration without delivery path: automated test passed
 Four authenticated iOS/watchOS App Intents: implemented
 Manually created iPhone Shortcut: user-verified dry-run and local status Enviado
+Physical iPhone manual Shortcut and Siri general capture: user-verified dry-run
+Physical Apple Watch native Siri general capture: user-verified in Watch-local history
 Auto Shortcuts on iOS 26.5 Simulator: blocked by known Apple regression
-Spanish App Shortcuts metadata: physical/older-runtime Auto Shortcut QA pending
+Spanish general-capture App Shortcut metadata: physical iPhone and Watch verified
+Expense/reminder/grocery Siri phrases: physical per-phrase QA pending
 Watch→iPhone capture fallback: paired-simulator QA verified
 Full outage → same-request-ID retry: paired-simulator QA verified
-Delivery-path persistence and sanitized last-route diagnostics: implemented, Xcode QA pending
-Privacy manifest: parsed and validated, Xcode archive report pending
+Delivery-path persistence and sanitized last-route diagnostics: physical QA verified
+Privacy manifests: archive passed with no warnings; app and Watch CA92.1 verified in built artifacts
 Physical-device build 0.3.1 (4): installed on paired iPhone and Apple Watch
 Physical BFF health, Keychain provisioning, and Watch bootstrap: user-verified
 Physical Watch direct HTTPS dry-run: user-verified Enviado, attempt 1, route direct_https
@@ -204,6 +207,8 @@ No external write occurred.
 
 Keep writes disabled. Next validation lane:
 
-1. Verify Shortcut/Siri on the physical iPhone and Apple Watch.
-2. Inspect the Xcode archive privacy report.
-3. Perform another GPT-5.6-sol Max Thinking review before any external write is enabled.
+1. Reconcile the independent GPT-5.6-sol Max Thinking final review.
+2. Verify the expense, reminder, and grocery Siri phrases individually if every phrase is a release requirement.
+3. Verify locked-device authentication behavior.
+4. Validate fresh TestFlight install and secure bootstrap before distribution.
+5. Design write enablement separately with explicit domain gates; do not infer permission from dry-run readiness.
