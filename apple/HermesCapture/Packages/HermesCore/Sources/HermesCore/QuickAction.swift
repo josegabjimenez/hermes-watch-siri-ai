@@ -74,7 +74,8 @@ public struct CaptureFactory: Sendable {
         kind: QuickActionKind,
         text: String,
         rawText: String? = nil,
-        modality: String? = nil
+        modality: String? = nil,
+        requestWrite: Bool = false
     ) -> CapturePayloadV1 {
         CapturePayloadV1(
             requestID: makeRequestID(),
@@ -92,7 +93,11 @@ public struct CaptureFactory: Sendable {
                 text: text,
                 rawText: rawText
             ),
-            context: CaptureContext(dryRun: true, allowWrite: false)
+            context: CaptureContext(
+                dryRun: !requestWrite,
+                allowWrite: requestWrite,
+                allowFireflyWrite: false
+            )
         )
     }
 }

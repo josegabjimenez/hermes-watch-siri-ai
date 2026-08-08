@@ -27,7 +27,8 @@ enum HermesAppIntentCaptureRunner {
             kind: kind,
             text: trimmed,
             rawText: text,
-            modality: "app_intent"
+            modality: "app_intent",
+            requestWrite: kind == .grocery
         )
 
         let outbox = FileOutboxStore(fileURL: outboxURL)
@@ -62,7 +63,7 @@ enum HermesAppIntentCaptureRunner {
             )
             response = try await delivery.deliver(payload: payload, secret: secret)
             #endif
-            return response.displayMessage ?? "Enviado · dry-run"
+            return response.displayMessage ?? "Enviado"
         } catch let failure as OutboxDeliveryFailure {
             return failure.localizedDescription
         } catch {
@@ -142,7 +143,7 @@ struct CaptureReminderIntent: AppIntent {
 
 struct CaptureGroceryIntent: AppIntent {
     static var title: LocalizedStringResource = "Agregar al mercado en Hermes"
-    static var description = IntentDescription("Guarda y valida un artículo de mercado con Aura en modo dry-run.")
+    static var description = IntentDescription("Agrega un artículo a la lista de mercado con Aura.")
     static var openAppWhenRun = false
     static var authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalDeviceAuthentication
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Hermes mobile-capture v1 staging BFF.
+"""Hermes mobile-capture v1 synchronous BFF.
 
-A tiny synchronous dry-run server for Watch/iPhone development:
+A small synchronous server for Watch/iPhone capture:
 - verifies HMAC V2: HMAC_SHA256(secret, f"{timestamp}.{raw_body}")
 - validates the mobile_capture.v1 envelope
 - stores an idempotency ledger in SQLite
 - returns short JSON immediately to the client
-- performs NO external writes (Firefly/Notion/Calendar/Home Assistant)
+- permits only explicitly allowlisted server-side write adapters
 
 This is intentionally separate from Hermes generic webhook subscriptions because
 the current webhook adapter returns HTTP 202 immediately and runs the agent in
@@ -21,6 +21,9 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
+import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -36,6 +39,8 @@ DEFAULT_LEDGER_PATH = Path(__file__).resolve().parent / "data" / "mobile_capture
 REPLAY_TOLERANCE_SECONDS = 300
 MAX_BODY_BYTES = 64 * 1024
 BOGOTA = ZoneInfo("America/Bogota")
+CAPTURE_EXECUTION_LOCK = threading.Lock()
+SUPPORTED_WRITE_DOMAINS = frozenset({"aura.grocery_capture"})
 
 SPANISH_HOURS = {
     "una": 1,
@@ -60,6 +65,13 @@ class Config:
     ledger_path: Path
     host: str
     port: int
+    write_enabled: bool = False
+    write_domains: frozenset[str] = frozenset()
+    aura_helper: Path | None = None
+
+
+class WriteExecutionError(RuntimeError):
+    pass
 
 
 def load_secret(path: Path) -> bytes:
@@ -92,6 +104,13 @@ def init_db(path: Path) -> None:
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def json_response(handler: BaseHTTPRequestHandler, status: int, body: dict[str, Any]) -> None:
@@ -229,20 +248,20 @@ def plan_capture(payload: dict[str, Any]) -> dict[str, Any]:
     capture = payload.get("capture") or {}
     text = str(capture.get("text") or "").strip()
 
-    # This staging implementation is server-locked to dry-run. Client context
-    # flags can make a request more restrictive but can never enable writes.
+    # Planning is always side-effect free. execute_capture may separately invoke
+    # an exact server-allowlisted adapter; client context never grants authority.
     base: dict[str, Any] = {
         "status": "accepted",
         "dry_run": True,
+        "write_committed": False,
         "request_id": request_id,
         "domain": domain,
         "display_message": "Captura validada · dry-run ✅",
         "question": None,
-        "plan": {"side_effects": [], "would_write": False, "notes": "No external writes in staging."},
+        "plan": {"side_effects": [], "would_write": False, "notes": "Planning response; no external write committed."},
         "gates_missing": [
-            "persistent production ledger",
-            "domain write flag",
-            "external write reconciliation",
+            "server domain allowlist",
+            "external write adapter",
         ],
     }
     if not text:
@@ -321,6 +340,127 @@ def plan_capture(payload: dict[str, Any]) -> dict[str, Any]:
     return base
 
 
+def client_requests_write(payload: dict[str, Any]) -> bool:
+    context = payload.get("context") or {}
+    return context.get("dry_run") is False and context.get("allow_write") is True
+
+
+def write_is_authorized(payload: dict[str, Any], cfg: Config) -> bool:
+    domain, _, _ = canonical_domain(payload)
+    route = payload.get("route") or {}
+    return (
+        client_requests_write(payload)
+        and cfg.write_enabled
+        and route.get("agent") == "aura"
+        and route.get("intent") == "grocery"
+        and domain in SUPPORTED_WRITE_DOMAINS
+        and domain in cfg.write_domains
+    )
+
+
+def run_aura_helper(
+    payload: dict[str, Any],
+    cfg: Config,
+    *,
+    dry_run: bool,
+    text_override: str | None = None,
+) -> dict[str, Any]:
+    helper = cfg.aura_helper
+    if helper is None or not helper.is_file():
+        raise WriteExecutionError("aura_helper_unavailable")
+    capture = payload.get("capture") or {}
+    helper_payload = {
+        "text": text_override or str(capture.get("text") or "").strip(),
+        "request_id": str(payload.get("request_id") or ""),
+    }
+    command = [
+        sys.executable,
+        str(helper),
+        "--payload-file",
+        "-",
+        "--no-notify",
+        "--no-ai-title",
+    ]
+    if dry_run:
+        command.append("--dry-run")
+    try:
+        process = subprocess.run(
+            command,
+            input=json.dumps(helper_payload, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WriteExecutionError("aura_helper_failed") from error
+    try:
+        result = json.loads(process.stdout)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise WriteExecutionError("aura_helper_invalid_response") from error
+    if process.returncode != 0 or result.get("ok") is not True:
+        raise WriteExecutionError("aura_helper_rejected")
+    return result
+
+
+def execute_capture(payload: dict[str, Any], cfg: Config) -> dict[str, Any]:
+    planned = plan_capture(payload)
+    if not write_is_authorized(payload, cfg):
+        return planned
+
+    request_id = str(payload.get("request_id") or "")
+    domain, _, _ = canonical_domain(payload)
+    if domain != "aura.grocery_capture":
+        return planned
+
+    # The route is not enough to authorize a side effect. The deterministic
+    # helper must independently classify the dictation as a grocery operation.
+    capture_text = str((payload.get("capture") or {}).get("text") or "").strip()
+    preflight = run_aura_helper(payload, cfg, dry_run=True)
+    helper_text = capture_text
+    if preflight.get("intent") in {"task_unscheduled", "note"} and not re.search(
+        r"\b(anota|guarda|idea|gasto|pague|pagué|compre|compré|enciende|apaga|puerta|alarma)\b|\d[\d.,]*\s*(mil|cop|pesos)",
+        capture_text.lower(),
+    ):
+        # The dedicated Mercado surface commonly dictates a bare noun such as
+        # "leche". Give the existing Aura helper the missing route context.
+        helper_text = f"falta {capture_text}"
+        preflight = run_aura_helper(payload, cfg, dry_run=True, text_override=helper_text)
+    if preflight.get("intent") not in {"grocery", "grocery_done"}:
+        planned.update(
+            status="needs_confirmation",
+            display_message="No parece un artículo de mercado · no cambié nada",
+            question="¿Qué artículo quieres agregar o marcar como comprado?",
+        )
+        return planned
+
+    committed = run_aura_helper(payload, cfg, dry_run=False, text_override=helper_text)
+    if committed.get("intent") not in {"grocery", "grocery_done"}:
+        raise WriteExecutionError("aura_helper_domain_mismatch")
+    if not committed.get("block_id") and not committed.get("duplicate"):
+        raise WriteExecutionError("aura_helper_missing_external_id")
+
+    item = str(committed.get("item") or committed.get("title") or "artículo")[:160]
+    action = "comprado" if committed.get("intent") == "grocery_done" else "faltante"
+    return {
+        "status": "committed",
+        "dry_run": False,
+        "write_committed": True,
+        "request_id": request_id,
+        "domain": domain,
+        "display_message": f"Mercado actualizado ✅ · {item} ({action})",
+        "question": None,
+        "duplicate": bool(committed.get("duplicate", False)),
+        "plan": {
+            "side_effects": ["notion.official_grocery_list.write"],
+            "would_write": True,
+            "notes": "Committed by server-allowlisted Aura grocery adapter.",
+        },
+        "external_ids": {"notion_block_id": committed.get("block_id")},
+        "gates_missing": [],
+    }
+
+
 def validate_payload(payload: Any, header_request_id: str) -> tuple[bool, int, dict[str, Any]]:
     if not isinstance(payload, dict):
         return False, HTTPStatus.BAD_REQUEST, {"status": "rejected", "error": "payload must be object"}
@@ -353,7 +493,17 @@ class MobileCaptureHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/health":
-            json_response(self, HTTPStatus.OK, {"status": "ok", "service": "mobile-capture-v1-staging", "mode": "dry-run"})
+            enabled_domains = sorted(self.cfg.write_domains & SUPPORTED_WRITE_DOMAINS) if self.cfg.write_enabled else []
+            json_response(
+                self,
+                HTTPStatus.OK,
+                {
+                    "status": "ok",
+                    "service": "mobile-capture-v1-staging",
+                    "mode": "allowlisted-write" if enabled_domains else "dry-run",
+                    "write_domains": enabled_domains,
+                },
+            )
             return
         json_response(self, HTTPStatus.NOT_FOUND, {"error": "not found"})
 
@@ -383,42 +533,53 @@ class MobileCaptureHandler(BaseHTTPRequestHandler):
         request_id = str(payload.get("request_id"))
         payload_hash = hashlib.sha256(raw).hexdigest()
         domain, _, _ = canonical_domain(payload)
-        # Defense-in-depth: tests or operators may remove the SQLite file while
-        # the process is running. Recreate the schema before every ledger use;
-        # this is cheap and keeps the staging server from dropping a valid
-        # capture with an empty TCP reply.
-        init_db(self.cfg.ledger_path)
-        with sqlite3.connect(self.cfg.ledger_path, timeout=5.0) as conn:
-            # Serialize the read-before-insert decision. Without an immediate
-            # transaction, concurrent retries can both observe a missing row
-            # and one connection then fails its UNIQUE insert with an empty
-            # HTTP response instead of receiving the cached result.
-            conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute(
-                "SELECT payload_hash, response_json FROM mobile_capture_ledger WHERE request_id = ?",
-                (request_id,),
-            ).fetchone()
-            if row:
-                old_hash, old_response = row
-                if old_hash != payload_hash:
-                    json_response(self, HTTPStatus.CONFLICT, {"status": "rejected", "error": "request_id_conflict", "request_id": request_id})
-                    return
-                cached = json.loads(old_response)
-                cached["status"] = "duplicate"
-                cached["duplicate"] = True
-                cached["display_message"] = cached.get("display_message") or "Ya estaba enviado ✅"
-                json_response(self, HTTPStatus.OK, cached)
-                return
+        try:
+            # The service runs as one process. Serialize the ledger decision and
+            # adapter execution so same-ID requests cannot race the external
+            # helper before either idempotency record is durable.
+            with CAPTURE_EXECUTION_LOCK:
+                # Defense-in-depth: tests or operators may remove the SQLite
+                # file while the process is running.
+                init_db(self.cfg.ledger_path)
+                with sqlite3.connect(self.cfg.ledger_path, timeout=65.0) as conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    row = conn.execute(
+                        "SELECT payload_hash, response_json FROM mobile_capture_ledger WHERE request_id = ?",
+                        (request_id,),
+                    ).fetchone()
+                    if row:
+                        old_hash, old_response = row
+                        if old_hash != payload_hash:
+                            json_response(self, HTTPStatus.CONFLICT, {"status": "rejected", "error": "request_id_conflict", "request_id": request_id})
+                            return
+                        cached = json.loads(old_response)
+                        cached["status"] = "duplicate"
+                        cached["duplicate"] = True
+                        cached["display_message"] = cached.get("display_message") or "Ya estaba enviado ✅"
+                        json_response(self, HTTPStatus.OK, cached)
+                        return
 
-            response = response or plan_capture(payload)
-            response.setdefault("request_id", request_id)
-            response.setdefault("domain", domain)
-            ts = now_iso()
-            conn.execute(
-                "INSERT INTO mobile_capture_ledger(request_id, payload_hash, domain, status, response_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (request_id, payload_hash, domain, str(response.get("status", "accepted")), json.dumps(response, ensure_ascii=False), ts, ts),
+                    response = response or execute_capture(payload, self.cfg)
+                    response.setdefault("request_id", request_id)
+                    response.setdefault("domain", domain)
+                    ts = now_iso()
+                    conn.execute(
+                        "INSERT INTO mobile_capture_ledger(request_id, payload_hash, domain, status, response_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (request_id, payload_hash, domain, str(response.get("status", "accepted")), json.dumps(response, ensure_ascii=False), ts, ts),
+                    )
+                    conn.commit()
+        except WriteExecutionError:
+            json_response(
+                self,
+                HTTPStatus.BAD_GATEWAY,
+                {
+                    "status": "error",
+                    "error": "write_adapter_failed",
+                    "request_id": request_id,
+                    "domain": domain,
+                },
             )
-            conn.commit()
+            return
         json_response(self, HTTPStatus.OK, response)
 
 
@@ -436,9 +597,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=int(os.getenv("MOBILE_CAPTURE_PORT", "8650")))
     parser.add_argument("--secret-file", type=Path, default=Path(os.getenv("MOBILE_CAPTURE_SECRET_FILE", str(DEFAULT_SECRET_FILE))))
     parser.add_argument("--ledger", type=Path, default=Path(os.getenv("MOBILE_CAPTURE_LEDGER", str(DEFAULT_LEDGER_PATH))))
+    parser.add_argument("--write-enabled", action="store_true", default=env_flag("MOBILE_CAPTURE_WRITE_ENABLED"))
+    parser.add_argument("--write-domains", default=os.getenv("MOBILE_CAPTURE_WRITE_DOMAINS", ""))
+    parser.add_argument("--aura-helper", type=Path, default=Path(os.getenv("MOBILE_CAPTURE_AURA_HELPER", "/root/.hermes/scripts/apple_watch_capture.py")))
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
-    run_server(Config(secret=load_secret(args.secret_file), ledger_path=args.ledger, host=args.host, port=args.port))
+    domains = frozenset(value.strip() for value in args.write_domains.split(",") if value.strip())
+    run_server(
+        Config(
+            secret=load_secret(args.secret_file),
+            ledger_path=args.ledger,
+            host=args.host,
+            port=args.port,
+            write_enabled=args.write_enabled,
+            write_domains=domains,
+            aura_helper=args.aura_helper,
+        )
+    )

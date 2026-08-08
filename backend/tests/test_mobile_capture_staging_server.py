@@ -19,6 +19,17 @@ import mobile_capture_staging_server as srv
 
 
 class MobileCaptureStagingServerTests(unittest.TestCase):
+    @staticmethod
+    def grocery_payload(*, live: bool = False, text: str = "leche"):
+        return {
+            "event_type": "mobile_capture.v1",
+            "schema_version": 1,
+            "request_id": "unit-grocery-write",
+            "route": {"agent": "aura", "intent": "grocery", "domain": "aura.grocery_capture"},
+            "capture": {"text": text},
+            "context": {"dry_run": not live, "allow_write": live, "allow_firefly_write": False},
+        }
+
     def test_parse_amount_cop(self):
         self.assertEqual(srv.parse_amount_cop("45 mil en Uber"), 45000)
         self.assertEqual(srv.parse_amount_cop("33.500 sandwiches"), 33500)
@@ -95,6 +106,87 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
         self.assertIsNotNone(due)
         self.assertEqual(due["start"], "2026-07-07T14:00:00-05:00")
 
+    def test_grocery_write_requires_client_and_server_gates(self):
+        cfg = srv.Config(
+            secret=b"test",
+            ledger_path=Path("unused.sqlite"),
+            host="127.0.0.1",
+            port=0,
+            write_enabled=True,
+            write_domains=frozenset({"aura.grocery_capture"}),
+            aura_helper=Path(__file__),
+        )
+        self.assertFalse(srv.write_is_authorized(self.grocery_payload(live=False), cfg))
+        self.assertTrue(srv.write_is_authorized(self.grocery_payload(live=True), cfg))
+        spoofed_route = self.grocery_payload(live=True)
+        spoofed_route["route"].update(agent="megan", intent="expense")
+        self.assertFalse(srv.write_is_authorized(spoofed_route, cfg))
+        self.assertFalse(
+            srv.write_is_authorized(
+                self.grocery_payload(live=True),
+                srv.Config(
+                    secret=b"test",
+                    ledger_path=Path("unused.sqlite"),
+                    host="127.0.0.1",
+                    port=0,
+                    write_enabled=False,
+                    write_domains=frozenset({"aura.grocery_capture"}),
+                ),
+            )
+        )
+
+    def test_bare_grocery_item_commits_through_allowlisted_adapter(self):
+        payload = self.grocery_payload(live=True, text="leche")
+        cfg = srv.Config(
+            secret=b"test",
+            ledger_path=Path("unused.sqlite"),
+            host="127.0.0.1",
+            port=0,
+            write_enabled=True,
+            write_domains=frozenset({"aura.grocery_capture"}),
+            aura_helper=Path(__file__),
+        )
+        helper_results = [
+            {"ok": True, "intent": "note", "title": "Leche"},
+            {"ok": True, "intent": "grocery", "title": "Leche"},
+            {"ok": True, "intent": "grocery", "item": "leche", "block_id": "notion-block"},
+        ]
+        with mock.patch.object(srv, "run_aura_helper", side_effect=helper_results) as helper:
+            response = srv.execute_capture(payload, cfg)
+
+        self.assertEqual(response["status"], "committed")
+        self.assertFalse(response["dry_run"])
+        self.assertTrue(response["write_committed"])
+        self.assertTrue(response["plan"]["would_write"])
+        self.assertEqual(response["request_id"], payload["request_id"])
+        self.assertEqual(response["external_ids"]["notion_block_id"], "notion-block")
+        self.assertEqual(helper.call_count, 3)
+        self.assertEqual(helper.call_args_list[1].kwargs["text_override"], "falta leche")
+        self.assertEqual(helper.call_args_list[2].kwargs["text_override"], "falta leche")
+
+    def test_grocery_route_mismatch_does_not_execute_write(self):
+        payload = self.grocery_payload(live=True, text="recuérdame llamar mañana")
+        cfg = srv.Config(
+            secret=b"test",
+            ledger_path=Path("unused.sqlite"),
+            host="127.0.0.1",
+            port=0,
+            write_enabled=True,
+            write_domains=frozenset({"aura.grocery_capture"}),
+            aura_helper=Path(__file__),
+        )
+        with mock.patch.object(
+            srv,
+            "run_aura_helper",
+            return_value={"ok": True, "intent": "reminder", "title": "Llamar"},
+        ) as helper:
+            response = srv.execute_capture(payload, cfg)
+
+        self.assertEqual(response["status"], "needs_confirmation")
+        self.assertTrue(response["dry_run"])
+        self.assertFalse(response["plan"]["would_write"])
+        self.assertEqual(helper.call_count, 1)
+
     def test_validate_wrong_event_is_ignored(self):
         valid, status, response = srv.validate_payload({"event_type": "other", "schema_version": 1}, "")
         self.assertFalse(valid)
@@ -143,11 +235,11 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
             "context": {"dry_run": True, "allow_write": False, "allow_firefly_write": False},
         }
         raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        original_plan = srv.plan_capture
+        original_execute = srv.execute_capture
 
-        def slow_plan(value):
+        def slow_execute(value, cfg):
             time.sleep(0.05)
-            return original_plan(value)
+            return original_execute(value, cfg)
 
         class QuietHandler(srv.MobileCaptureHandler):
             def log_message(self, fmt, *args):
@@ -194,7 +286,7 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
                     return response.status, json.loads(response.read())["status"]
 
             try:
-                with mock.patch.object(srv, "plan_capture", side_effect=slow_plan):
+                with mock.patch.object(srv, "execute_capture", side_effect=slow_execute):
                     with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
                         results = list(executor.map(send, range(worker_count)))
             finally:

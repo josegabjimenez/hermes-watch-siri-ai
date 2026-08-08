@@ -93,14 +93,15 @@ struct WatchCaptureView: View {
         )
         let payload = factory.makePayload(
             kind: action,
-            text: trimmedText
+            text: trimmedText,
+            requestWrite: action == .grocery
         )
         let outbox = FileOutboxStore(fileURL: outboxURL)
 
         do {
             _ = try await outbox.enqueue(payload, now: payload.createdAt)
             text = ""
-            statusMessage = "Enviando · dry-run"
+            statusMessage = "Enviando…"
 
             guard
                 let rawBaseURL = UserDefaults.standard.string(forKey: "hermes.baseURL"),
@@ -121,7 +122,7 @@ struct WatchCaptureView: View {
                 outbox: outbox
             )
 
-            statusMessage = response.displayMessage ?? "Enviado · dry-run"
+            statusMessage = response.displayMessage ?? "Enviado"
             WKInterfaceDevice.current().play(.success)
         } catch let failure as OutboxDeliveryFailure {
             statusMessage = failure.localizedDescription

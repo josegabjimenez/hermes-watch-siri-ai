@@ -8,6 +8,7 @@ public struct CaptureResponseV1: Codable, Equatable, Sendable {
     public var displayMessage: String?
     public var question: String?
     public var duplicate: Bool?
+    public var writeCommitted: Bool?
     public var plan: CaptureResponsePlan?
     public var gatesMissing: [String]?
 
@@ -19,6 +20,7 @@ public struct CaptureResponseV1: Codable, Equatable, Sendable {
         displayMessage: String? = nil,
         question: String? = nil,
         duplicate: Bool? = nil,
+        writeCommitted: Bool? = nil,
         plan: CaptureResponsePlan? = nil,
         gatesMissing: [String]? = nil
     ) {
@@ -29,6 +31,7 @@ public struct CaptureResponseV1: Codable, Equatable, Sendable {
         self.displayMessage = displayMessage
         self.question = question
         self.duplicate = duplicate
+        self.writeCommitted = writeCommitted
         self.plan = plan
         self.gatesMissing = gatesMissing
     }
@@ -41,6 +44,7 @@ public struct CaptureResponseV1: Codable, Equatable, Sendable {
         case displayMessage = "display_message"
         case question
         case duplicate
+        case writeCommitted = "write_committed"
         case plan
         case gatesMissing = "gates_missing"
     }

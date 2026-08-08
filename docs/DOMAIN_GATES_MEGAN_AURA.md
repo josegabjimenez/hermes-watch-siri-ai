@@ -129,3 +129,27 @@ Must cover:
 4. Megan simple bank/Nequi expenses.
 5. Aura safe Home Assistant commands.
 6. Megan FP/TC multi-write after partial-error recovery is proven.
+
+## Current rollout state — 2026-08-08
+
+Only rollout step 2's grocery-add path has been promoted, under the narrower exact server-side gate:
+
+```text
+route.agent == aura
+route.intent == grocery
+route.domain == aura.grocery_capture
+server write switch == enabled
+server allowlist contains aura.grocery_capture
+```
+
+The promotion followed a successful authorized canary covering create, Notion read-back, same-request replay, exactly-once verification, archive, and read-back of the archived state. See `GROCERY_WRITE_CANARY.md`.
+
+The following remain explicitly non-writing regardless of client `allow_write` values:
+
+- Aura reminders/tasks, including unscheduled tasks and notes;
+- Megan expenses and every Firefly operation;
+- Argos/general capture;
+- Aura Home Assistant and Calendar operations;
+- every unknown route or mismatched agent/intent/domain triple.
+
+Live Mercado requests use direct HTTPS only. Watch-to-iPhone fallback remains restricted to dry-run payloads, so a transient live-write transport failure stays in the durable outbox for retry with the same request ID.

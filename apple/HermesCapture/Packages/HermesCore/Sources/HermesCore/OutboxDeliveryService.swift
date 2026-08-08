@@ -84,11 +84,7 @@ public actor OutboxDeliveryService {
             }
             #endif
             let response = try await client.submit(payload: payload, secret: secret)
-            guard
-                response.dryRun == true,
-                response.plan?.wouldWrite == false,
-                response.requestID == payload.requestID
-            else {
+            guard Self.isSafe(response: response, for: payload) else {
                 throw OutboxDeliveryFailure.unsafeResponse
             }
             try await store.markSent(
@@ -127,5 +123,26 @@ public actor OutboxDeliveryService {
             return .invalidResponse
         }
         return .unknown
+    }
+
+    private static func isSafe(
+        response: CaptureResponseV1,
+        for payload: CapturePayloadV1
+    ) -> Bool {
+        guard
+            response.requestID == payload.requestID,
+            response.domain == payload.route.domain.rawValue
+        else {
+            return false
+        }
+        if payload.context.dryRun {
+            return response.dryRun == true
+                && response.plan?.wouldWrite == false
+                && response.writeCommitted != true
+        }
+        return payload.context.allowWrite
+            && response.dryRun == false
+            && response.plan?.wouldWrite == true
+            && response.writeCommitted == true
     }
 }

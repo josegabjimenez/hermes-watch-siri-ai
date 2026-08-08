@@ -303,7 +303,11 @@ struct IOSContentView: View {
             let client = WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
             let response = try await client.submit(payload: payload, secret: secret)
 
-            guard response.dryRun == true, response.plan?.wouldWrite != true else {
+            guard
+                response.dryRun == true,
+                response.plan?.wouldWrite == false,
+                response.requestID == payload.requestID
+            else {
                 statusMessage = "Respuesta insegura: se esperaba dry-run"
                 return
             }

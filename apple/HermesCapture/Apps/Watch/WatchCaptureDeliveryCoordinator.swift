@@ -75,7 +75,11 @@ enum WatchCaptureDeliveryCoordinator {
         do {
             return try await direct.deliver(payload: payload, secret: secret)
         } catch let failure as OutboxDeliveryFailure {
-            guard failure.isTransientTransportFailure else {
+            guard
+                payload.context.dryRun,
+                !payload.context.allowWrite,
+                failure.isTransientTransportFailure
+            else {
                 throw failure
             }
             do {

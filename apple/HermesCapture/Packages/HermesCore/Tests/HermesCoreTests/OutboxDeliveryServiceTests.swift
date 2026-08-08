@@ -57,6 +57,105 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         XCTAssertNil(items.first?.lastError)
     }
 
+    func testCommittedAllowlistedWriteMarksItemSent() async throws {
+        let fixture = try await makeFixture(
+            requestID: "delivery-grocery-write",
+            route: .grocery,
+            context: CaptureContext(
+                dryRun: false,
+                allowWrite: true,
+                allowFireflyWrite: false
+            )
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let responseBody = Data("""
+        {
+          "status":"committed",
+          "dry_run":false,
+          "write_committed":true,
+          "request_id":"delivery-grocery-write",
+          "domain":"aura.grocery_capture",
+          "display_message":"Mercado actualizado ✅ · leche (faltante)",
+          "plan":{"would_write":true,"side_effects":["notion.official_grocery_list.write"]}
+        }
+        """.utf8)
+        let client = WebhookClient(
+            endpoint: URL(string: "https://example.invalid/webhooks/mobile-capture-v1")!,
+            session: URLSessionStub { request in
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )
+                )
+                return (responseBody, response)
+            }
+        )
+        let delivery = OutboxDeliveryService(
+            store: fixture.store,
+            client: client,
+            nowISO8601: { "2026-08-04T23:30:01Z" }
+        )
+
+        let response = try await delivery.deliver(
+            payload: fixture.payload,
+            secret: "unit-test-secret"
+        )
+        let items = try await fixture.store.loadAll()
+
+        XCTAssertEqual(response.writeCommitted, true)
+        XCTAssertEqual(items.first?.status, .sent)
+        XCTAssertEqual(items.first?.lastDeliveryPath, .directHTTPS)
+    }
+
+    func testLiveResponseWithoutCommitProofIsRejected() async throws {
+        let fixture = try await makeFixture(
+            requestID: "delivery-unproven-write",
+            route: .grocery,
+            context: CaptureContext(dryRun: false, allowWrite: true)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.directory) }
+
+        let responseBody = Data("""
+        {
+          "status":"accepted",
+          "dry_run":false,
+          "request_id":"delivery-unproven-write",
+          "domain":"aura.grocery_capture",
+          "plan":{"would_write":true}
+        }
+        """.utf8)
+        let client = WebhookClient(
+            endpoint: URL(string: "https://example.invalid/webhooks/mobile-capture-v1")!,
+            session: URLSessionStub { request in
+                let response = try XCTUnwrap(
+                    HTTPURLResponse(
+                        url: request.url!,
+                        statusCode: 200,
+                        httpVersion: nil,
+                        headerFields: nil
+                    )
+                )
+                return (responseBody, response)
+            }
+        )
+        let delivery = OutboxDeliveryService(store: fixture.store, client: client)
+
+        do {
+            _ = try await delivery.deliver(payload: fixture.payload, secret: "unit-test-secret")
+            XCTFail("Expected unproven write response to be rejected")
+        } catch let failure as OutboxDeliveryFailure {
+            XCTAssertEqual(failure, .unsafeResponse)
+        }
+
+        let items = try await fixture.store.loadAll()
+        XCTAssertEqual(items.first?.status, .failed)
+        XCTAssertEqual(items.first?.lastError, "unsafe_response")
+    }
+
     func testMismatchedResponseRequestIDIsRejectedAsUnsafe() async throws {
         let fixture = try await makeFixture(requestID: "delivery-request-id")
         defer { try? FileManager.default.removeItem(at: fixture.directory) }
@@ -284,7 +383,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
         XCTAssertTrue(remaining.isEmpty)
     }
 
-    private func makeFixture(requestID: String) async throws -> DeliveryFixture {
+    private func makeFixture(
+        requestID: String,
+        route: CaptureRoute = .general,
+        context: CaptureContext = CaptureContext()
+    ) async throws -> DeliveryFixture {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let fileURL = directory.appendingPathComponent("outbox.json")
@@ -298,11 +401,12 @@ final class OutboxDeliveryServiceTests: XCTestCase {
                 deviceID: "unit-device",
                 surface: "watch_app"
             ),
-            route: .general,
+            route: route,
             capture: CaptureText(
                 modality: "watch_dictation",
                 text: "integration test"
-            )
+            ),
+            context: context
         )
         let store = FileOutboxStore(fileURL: fileURL)
         _ = try await store.enqueue(payload, now: payload.createdAt)

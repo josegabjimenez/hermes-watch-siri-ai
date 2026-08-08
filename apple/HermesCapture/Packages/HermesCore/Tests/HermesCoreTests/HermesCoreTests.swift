@@ -121,6 +121,28 @@ final class HermesCoreTests: XCTestCase {
         XCTAssertEqual(payload.context.allowWrite, false)
     }
 
+    func testCaptureFactoryCanExplicitlyRequestGroceryWrite() {
+        let factory = CaptureFactory(
+            appVersion: "0.3.3",
+            platform: "watchOS",
+            osVersion: "27.0",
+            deviceID: "unit-device",
+            surface: "watch_app",
+            nowISO8601: { "2026-08-04T23:30:00Z" },
+            makeRequestID: { "grocery-write-request" }
+        )
+
+        let payload = factory.makePayload(
+            kind: .grocery,
+            text: "leche",
+            requestWrite: true
+        )
+
+        XCTAssertFalse(payload.context.dryRun)
+        XCTAssertTrue(payload.context.allowWrite)
+        XCTAssertEqual(payload.context.allowFireflyWrite, false)
+    }
+
     func testFallbackEligibilityOnlyAllowsTransientTransportFailures() {
         XCTAssertTrue(OutboxDeliveryFailure.network(-1009).isTransientTransportFailure)
         XCTAssertTrue(OutboxDeliveryFailure.http(502).isTransientTransportFailure)

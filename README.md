@@ -11,20 +11,21 @@ The project starts with a documented backend staging layer and API contract, the
 - `mobile_capture.v1` API contract.
 - Synchronous BFF staging endpoint for Watch-friendly responses.
 - HMAC V2 signing and idempotency ledger design.
-- Domain gates for Megan/Aura write-enabled actions.
-- Fable 5 review gates for important architecture/security/product decisions.
+- Server-owned domain gates for write-enabled actions.
+- GPT-5.6-sol Max Thinking review gates for important architecture/security/product decisions.
 - Initial XcodeGen + Swift Package scaffold under `apple/HermesCapture`.
 - Watch system text-entry/dictation flow with local file-backed outbox.
 - iPhone HTTPS endpoint configuration, health check, and route secret in Keychain.
 - User-initiated WatchConnectivity bootstrap into Watch Keychain.
-- End-to-end Watch outbox delivery to the synchronous BFF in dry-run mode.
+- End-to-end Watch outbox delivery to the synchronous BFF.
 - Local Watch history plus sanitized aggregate diagnostics on iPhone.
-- Authenticated iOS/watchOS App Intents and Spanish App Shortcuts in dry-run mode.
+- Authenticated iOS/watchOS App Intents and Spanish App Shortcuts.
 - Transient Watch→iPhone capture fallback that never transfers the HMAC secret.
 - Shared privacy manifest and automatic-signing readiness for physical-device QA.
 - Delivery-path observability (`Directo` vs `vía iPhone`) without exposing capture content.
 - Physical paired-device dry-run QA passed for direct HTTPS, iPhone fallback, outage persistence, and same-item retry.
 - Physical iPhone/Watch Siri capture and archive privacy-manifest gates passed.
+- Allowlisted Aura Mercado writes with a reversible Notion canary; every other domain remains dry-run.
 
 ## Review policy
 
@@ -52,7 +53,7 @@ Default branch: `main`.
 apple/HermesCapture/                    # XcodeGen + Swift Package scaffold
 
 backend/
-  mobile_capture_staging_server.py       # local synchronous dry-run BFF
+  mobile_capture_staging_server.py       # synchronous BFF with server-side domain gates
   mobile-capture-v1-webhook-prompt.md    # generic Hermes webhook prompt, log-only/no-write
   fixtures/                              # signed-request test fixtures
   scripts/sign_and_post_mobile_capture.py
@@ -84,6 +85,7 @@ docs/
   GPT56_SOL_MAX_REVIEW_003_PHYSICAL_DEVICE_READINESS.md
   GPT56_SOL_MAX_REVIEW_004_DELIVERY_PATH_OBSERVABILITY.md
   GPT56_SOL_MAX_REVIEW_005_FINAL_DRY_RUN_RELEASE_READINESS.md
+  GROCERY_WRITE_CANARY.md
   ARCHIVE_PRIVACY_REPORT_STATUS.md
   subagent-briefs/
 ```
@@ -127,16 +129,23 @@ Replace `<TAILSCALE_DNS_NAME>` locally with your actual tailnet DNS name. Do not
 
 ## Security status
 
-Current status is **dry-run/no-write**.
+Current status is **write-enabled only for Aura Mercado** after a reversible create/read/idempotency/archive/read canary. The exact server-side allowlist is:
 
-Blocked before production writes:
+```text
+agent:  aura
+intent: grocery
+domain: aura.grocery_capture
+```
+
+Client `allow_write` fields are never authorization. The server must also enable the exact triple above. Megan expenses, reminders, general capture, Home Assistant, Calendar, and unknown domains remain dry-run/no-write.
+
+Still required before broader production writes:
 
 - durable deployment behind HTTPS;
-- server-side domain write flags;
 - production-grade ledger retention/backup;
 - archive privacy-report and App Store privacy reconciliation;
-- physical Apple Watch QA;
-- domain write gates for Megan/Aura.
+- physical Apple Watch smoke QA for candidate 0.3.3 (6);
+- separate domain gates and reversible canaries for every additional write domain.
 
 ## License
 
