@@ -13,6 +13,9 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
     sources:
       - path: Apps/iOS
       - path: Apps/Shared
@@ -35,6 +38,9 @@ targets:
     type: application
     platform: watchOS
     deploymentTarget: "10.0"
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
     sources:
       - path: Apps/Watch
       - path: Apps/Shared

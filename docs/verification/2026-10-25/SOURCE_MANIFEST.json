@@ -69,6 +69,10 @@
       "sha256": "476bb7715b0d2ec89ded4fa69ea787fa74a5a88e38cc4b954a1307609781dd4a"
     },
     {
+      "path": "apple/HermesCapture/Config/Signing.xcconfig",
+      "sha256": "35bbd1b7c0824076d14e9c56cebff50888555961d8b3bfc647b21de050b0db02"
+    },
+    {
       "path": "apple/HermesCapture/Packages/HermesCore/Package.swift",
       "sha256": "c23a1349d676b393afab7626a75466a65fb634ef2b9dc79acf672a34e4c30e22"
     },
@@ -146,7 +150,7 @@
     },
     {
       "path": "apple/HermesCapture/project.yml",
-      "sha256": "afce0af641ea32e63d93b5472719e901407b4e8728eb438c052efde2aa76ab2d"
+      "sha256": "bddf82aa6c2c6e26a160e0714593d03f0b13639a99bf72b1ac480b0a150e8990"
     },
     {
       "path": "backend/fixtures/aura-reminder-simple.json",

@@ -1,0 +1,30 @@
+{
+  "date": "2026-10-25",
+  "scope": "Existing paired-device setup follow-up; no backend deployment or live write",
+  "toolchain": "Xcode 27.0 (27A5237l), command-scoped DEVELOPER_DIR",
+  "paired_os_versions": {
+    "iOS": "27.2",
+    "watchOS": "27.0"
+  },
+  "checks": {
+    "physical_destinations": "Both existing paired devices available; Developer Mode enabled",
+    "existing_team_and_identity": "Resolved locally; existing certificate valid through 2027-08-19",
+    "generated_signing_settings": "Both schemes inherit the existing Team, Automatic style and no manual profile override",
+    "post_configuration_unsigned_device_build": "Passed, iOS with embedded Watch",
+    "current_usable_provisioning_profiles": 0,
+    "recovered_matching_profile_expiration": "2026-09-04",
+    "profile_refresh": "Blocked: Xcode account list empty and saved account credentials invalid / username missing",
+    "signed_build": "Blocked pending human Apple account login and normal profile renewal",
+    "physical_install": "Not attempted; existing installation and app data preserved",
+    "xcode_gui_selection": "Not verified; Mac locked",
+    "existing_phone_app_version": "0.3.3 (6)",
+    "backend_health": "HTTP 200, aura.grocery_capture only",
+    "backend_code_identity": "Unverified by health",
+    "reminder_alert_delivery": "Unverified",
+    "live_reminder_and_expense_domains": "Not enabled in observed health"
+  },
+  "pending_human_action": "Unlock Mac; sign back into existing Apple account in Xcode Settings > Accounts; complete Apple 2FA",
+  "log_sha256": {
+    "unsigned-config-build.log": "6200e2cc66462273e64c9cf39b9d95df54cb6df99924fa0210761dc3520f626f"
+  }
+}

@@ -2,6 +2,8 @@
 
 Delivery state: **ready for code review; physical/live acceptance pending**. No backend was deployed, no live domain was exercised, and no financial records or production credentials were used.
 
+The later request to complete Xcode/device setup is tracked in [the device setup record](../../XCODE_DEVICE_SETUP.md). The original signing result below is historical: the Team has since been resolved locally; current profiles/account authentication are the remaining signing blockers.
+
 ## Candidate identity
 
 - Base: `970e14dfd6d3788996135a933cc0909c3049f076`.
@@ -68,6 +70,6 @@ python3 scripts/freeze_mvp_candidate.py
 
 Use a fresh verification output directory for each run. The verification script performs synthetic tests and unsigned builds only. It does not start a production backend, read a `.env` file, sign/archive, install on physical hardware, or publish anything. Local sandbox execution may require the normal native approval for compiler/simulator services and loopback sockets.
 
-Before personal use: review the PR, select the authorized Team for both product targets, verify the exact external Aura helper and its official-list/create-only/frozen-schedule/idempotency contract against fake services, authorize any backend rollout separately, and follow [the physical/notification handoff](../../HERMES_PERSONAL_MVP.md). Actual Calendar alarm readback and observed alert arrival are mandatory; Notion Task creation alone does not close the reminder gate.
+Before personal use: review the PR, complete the [current signed-device setup](../../XCODE_DEVICE_SETUP.md), verify the exact external Aura helper and its official-list/create-only/frozen-schedule/idempotency contract against fake services, authorize any backend rollout separately, and follow [the physical/notification handoff](../../HERMES_PERSONAL_MVP.md). Actual Calendar alarm readback and observed alert arrival are mandatory; Notion Task creation alone does not close the reminder gate.
 
 ![Synthetic Watch home](watch-home.png)

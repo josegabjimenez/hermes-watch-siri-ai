@@ -44,7 +44,7 @@ Use the installed Xcode with command-scoped `DEVELOPER_DIR=/Applications/Xcode-b
 
 Simulator UI tests use a Debug/simulator-only, explicit launch-argument fixture and an isolated per-case outbox. The fixture intercepts every request and cannot reach real services or write configuration/Keychain. Device and Release builds exclude it. Core/backend tests use synthetic data.
 
-Before personal use, Jose must select his authorized Team for both Xcode targets and prepare the signed installation without changing bundle IDs or enabling provisioning updates implicitly. Verify the exact build on the physical pair, then exercise:
+The [device setup follow-up](XCODE_DEVICE_SETUP.md) has configured the existing authorized Team and identity locally for both product targets with automatic signing. Jose subsequently authorized normal profile renewal and installation onto his existing pair. Signing currently needs him to unlock the Mac and sign back into the existing Apple account in Xcode; all recovered matching profiles are expired. Bundle IDs remain unchanged. After a signed build and installation are verified, exercise:
 
 - each Siri phrase on iPhone and Watch; expense opens review and requires tapping Register;
 - Watch direct HTTPS with the phone absent; locked/unlocked and cold-start/bootstrap behavior;
