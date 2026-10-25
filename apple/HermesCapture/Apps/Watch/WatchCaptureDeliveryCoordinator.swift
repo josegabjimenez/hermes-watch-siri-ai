@@ -21,6 +21,7 @@ enum WatchPhoneFallbackError: Error, LocalizedError {
 
 enum WatchPhoneCaptureFallback {
     static func submit(payload: CapturePayloadV1) async throws -> CaptureResponseV1 {
+        guard !HermesAppRuntime.isSynthetic else { throw WatchPhoneFallbackError.unavailable }
         #if DEBUG
         if ProcessInfo.processInfo.environment["HERMES_DISABLE_PHONE_FALLBACK"] == "1" {
             throw WatchPhoneFallbackError.unavailable
@@ -46,9 +47,7 @@ enum WatchPhoneCaptureFallback {
                         CaptureResponseV1.self,
                         from: responseData
                     ),
-                    response.dryRun == true,
-                    response.plan?.wouldWrite == false,
-                    response.requestID == payload.requestID
+                    OutboxDeliveryService.isSafe(response: response, for: payload)
                 else {
                     continuation.resume(throwing: WatchPhoneFallbackError.invalidResponse)
                     return
@@ -70,14 +69,14 @@ enum WatchCaptureDeliveryCoordinator {
     ) async throws -> CaptureResponseV1 {
         let direct = OutboxDeliveryService(
             store: outbox,
-            client: WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
+            client: HermesAppRuntime.makeClient(baseURL: baseURL)
         )
         do {
             return try await direct.deliver(payload: payload, secret: secret)
         } catch let failure as OutboxDeliveryFailure {
             guard
                 payload.context.dryRun,
-                !payload.context.allowWrite,
+                OutboxDeliveryService.isSafeRequest(payload),
                 failure.isTransientTransportFailure
             else {
                 throw failure
@@ -87,7 +86,8 @@ enum WatchCaptureDeliveryCoordinator {
                 try await outbox.markSent(
                     requestID: payload.requestID,
                     now: ISO8601DateFormatter().string(from: Date()),
-                    deliveryPath: .iPhoneFallback
+                    deliveryPath: .iPhoneFallback,
+                    response: response
                 )
                 return response
             } catch {

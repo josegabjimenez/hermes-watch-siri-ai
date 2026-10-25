@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
@@ -38,9 +39,72 @@ DEFAULT_SECRET_FILE = DEFAULT_HERMES_HOME / "mobile-capture-v1-secret.txt"
 DEFAULT_LEDGER_PATH = Path(__file__).resolve().parent / "data" / "mobile_capture_ledger.sqlite"
 REPLAY_TOLERANCE_SECONDS = 300
 MAX_BODY_BYTES = 64 * 1024
+# A stale confirmation can be refreshed against the same durable operation ID,
+# so the signing window can remain short without creating a replacement write.
+EXPENSE_CONFIRMATION_TTL_SECONDS = 5 * 60
+# An unconfirmed preview must not pin a dated plan indefinitely. Keep its
+# active lifetime aligned with the signed-confirmation window; writing and
+# uncertain operations never expire automatically because they require
+# external-id reconciliation.
+EXPENSE_PREVIEW_TTL_SECONDS = EXPENSE_CONFIRMATION_TTL_SECONDS
+EXPENSE_MAX_AMOUNT_COP = 100_000_000
 BOGOTA = ZoneInfo("America/Bogota")
+EXPENSE_OPERATION_ID_RE = re.compile(r"exp_[0-9a-f]{32}")
 CAPTURE_EXECUTION_LOCK = threading.Lock()
-SUPPORTED_WRITE_DOMAINS = frozenset({"aura.grocery_capture"})
+GROCERY_HELPER_WRITE_INTENTS = frozenset({"grocery"})
+REMINDER_HELPER_WRITE_INTENTS = frozenset({"reminder"})
+EXPENSE_HELPER_WRITE_DECISIONS = frozenset({"committed", "duplicate"})
+EXPENSE_BLOCKED_RE = re.compile(
+    r"\b(?:fp|futuro\s+pago|tc\s*[123]|tarjeta|cr[eé]dito|cuotas?|"
+    r"transferencia|transferir|transfiere|dep[oó]sito|ingreso|salario|pr[eé]stamo)\b",
+    re.I,
+)
+REMINDER_BARE_TASK_PREFIX_RE = re.compile(
+    r"^\s*(?:por\s+favor\s+)?(?:comprar|llamar|pagar|enviar|revisar|hacer|sacar|llevar|"
+    r"recoger|pedir|agendar|reservar|solicitar|preparar|limpiar|lavar|visitar|buscar|"
+    r"entregar|renovar|actualizar|responder|escribir|estudiar|tomar|ir|terminar|"
+    r"organizar|presentar)\b",
+    re.I,
+)
+REMINDER_CREATE_WRAPPER_RE = re.compile(
+    r"^(?:por\s+favor\s+)?(?:recuerdame|recordarme|no\s+me\s+dejes\s+olvidar)\b",
+    re.I,
+)
+REMINDER_DIRECT_QUERY_RE = re.compile(
+    r"^(?:por\s+favor\s+)?(?:"
+    r"(?:que|cuales|cuantos?|dime|lista|listar|muestrame|muestra|mostrar|consulta|consultar)\b"
+    r".{0,100}\b(?:recordatorios?|tareas?|pendientes?)\b|"
+    r"(?:tengo|hay|existen)\b.{0,100}\b(?:recordatorios?|tareas?|pendientes?)\b|"
+    r"(?:recordatorios?|tareas?|pendientes?)\b(?:$|.{0,100}\b(?:tengo|hay|existen)\b)"
+    r")",
+    re.I,
+)
+REMINDER_DIRECT_MUTATION_RE = re.compile(
+    r"^(?:por\s+favor\s+)?(?:puedes?\s+)?(?:"
+    r"cancela(?:me|r)?|elimina(?:me|r)?|borra(?:me|r)?|quita(?:me|r)?|"
+    r"pospon(?:er)?|reprograma(?:r)?|cambia(?:r)?|edita(?:r)?|mueve(?:me|r)?|"
+    r"marca(?:me|r)?|completa(?:r)?|termina(?:r)?"
+    r")\b",
+    re.I,
+)
+REMINDER_DIRECT_CROSS_DOMAIN_RE = re.compile(
+    r"^(?:por\s+favor\s+)?(?:puedes?\s+)?(?:"
+    r"anota(?:r)?|nota|guarda(?:r)?|registra(?:r)?|"
+    r"enciende(?:r)?|prende(?:r)?|apaga(?:r)?|abre|abrir|cierra|cerrar|"
+    r"sube|subir|baja|bajar|pon|poner|ajusta(?:r)?|"
+    r"pague|compre|falta|faltan|mercado|comprado|disponible|gasto|compra"
+    r")\b|"
+    r"^(?:temperatura|termostato|luces?|cortinas?|puerta|alarma|aire\s+acondicionado)\b|"
+    r"^(?:\$\s*\d|\d[\d.,]*\s*(?:mil|k|cop|pesos?)\b)",
+    re.I,
+)
+LEDGER_WAITING_FOR_SERVER_GATE = "waiting_for_server_gate"
+SUPPORTED_WRITE_ROUTES = {
+    ("aura", "grocery", "aura.grocery_capture"): GROCERY_HELPER_WRITE_INTENTS,
+    ("aura", "reminder", "aura.reminder_capture"): REMINDER_HELPER_WRITE_INTENTS,
+    ("megan", "expense", "megan.expense_capture"): EXPENSE_HELPER_WRITE_DECISIONS,
+}
+SUPPORTED_WRITE_DOMAINS = frozenset(route[2] for route in SUPPORTED_WRITE_ROUTES)
 
 SPANISH_HOURS = {
     "una": 1,
@@ -68,6 +132,7 @@ class Config:
     write_enabled: bool = False
     write_domains: frozenset[str] = frozenset()
     aura_helper: Path | None = None
+    expense_helper: Path | None = None
 
 
 class WriteExecutionError(RuntimeError):
@@ -97,6 +162,24 @@ def init_db(path: Path) -> None:
                 updated_at TEXT NOT NULL
             )
             """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS expense_operation_ledger (
+                operation_id TEXT PRIMARY KEY,
+                capture_fingerprint TEXT NOT NULL,
+                plan_hash TEXT NOT NULL,
+                plan_json TEXT NOT NULL,
+                external_id TEXT NOT NULL UNIQUE,
+                status TEXT NOT NULL,
+                response_json TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS expense_operation_fingerprint_idx ON expense_operation_ledger(capture_fingerprint, status, updated_at)"
         )
         conn.commit()
     path.chmod(0o600)
@@ -192,49 +275,75 @@ def parse_created_at(payload: dict[str, Any]) -> datetime:
     return datetime.now(BOGOTA)
 
 
-def parse_spanish_due(text: str, base: datetime) -> dict[str, Any] | None:
-    t = text.lower()
-    due = None
-    if "pasado mañana" in t:
-        due = base + timedelta(days=2)
-    elif "mañana" in t:
-        due = base + timedelta(days=1)
-    elif "hoy" in t:
-        due = base
-    elif "en media hora" in t:
-        due = base + timedelta(minutes=30)
-    else:
-        m_rel = re.search(r"en\s+(\d+|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+min", t)
-        if m_rel:
-            val = m_rel.group(1)
-            minutes = int(val) if val.isdigit() else SPANISH_HOURS.get(val, 0)
-            due = base + timedelta(minutes=minutes)
-    if due is None:
-        return None
+def reminder_dispatch_now() -> datetime:
+    return datetime.now(BOGOTA)
 
-    hour = None
-    minute = 0
-    meridiem = None
-    m_clock = re.search(r"(?:a\s+las\s+)?(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)?", t)
-    m_words = re.search(r"(?:a\s+las\s+)(una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)\s*(a\.?m\.?|p\.?m\.?|am|pm)?", t)
-    if m_words:
-        hour = SPANISH_HOURS[m_words.group(1)]
-        meridiem = (m_words.group(2) or "").replace(".", "")
-    elif m_clock:
-        candidate = int(m_clock.group(1))
-        # avoid reading dates like 2026 as time
-        if 0 <= candidate <= 23:
-            hour = candidate
-            minute = int(m_clock.group(2) or 0)
-            meridiem = (m_clock.group(3) or "").replace(".", "")
-    if hour is not None:
-        if meridiem == "pm" and hour < 12:
-            hour += 12
-        if meridiem == "am" and hour == 12:
-            hour = 0
-        due = due.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+def reminder_due_is_future(due: dict[str, Any]) -> bool:
+    return datetime.fromisoformat(due["start"]) > reminder_dispatch_now()
+
+
+def parse_spanish_due(text: str, base: datetime) -> dict[str, Any] | None:
+    """Resolve only explicit, future schedules in Bogotá without guessing AM/PM."""
+    t = "".join(char for char in unicodedata.normalize("NFKD", text or "") if not unicodedata.combining(char)).lower()
+    t = re.sub(r"\s+", " ", t).strip()
+    # Unsupported calendar dates remain unsupported even if the dictation also
+    # contains a relative phrase. Never discard one schedule to choose another.
+    if re.search(r"\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b|\d{4}-\d|\d/\d", t):
+        return None
+    relative_pattern = r"\ben\s+(\d+|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(minutos?|horas?)\b"
+    relative_count = len(re.findall(relative_pattern, t)) + len(re.findall(r"\ben\s+media\s+hora\b", t))
+    date_text = re.sub(r"\bde\s+la\s+(?:manana|tarde|noche)\b", " ", t)
+    day_mentions = re.findall(r"\b(?:pasado\s+manana|manana|hoy)\b", date_text)
+    alternative_time = r"\b(?:o|u)\s+(?:a\s+las?\s+)?(?:\d{1,2}|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|media)\b"
+    if relative_count > 1 or len(day_mentions) > 1 or re.search(alternative_time, t):
+        return None
+    relative = re.search(relative_pattern, t)
+    if relative_count and (day_mentions or re.search(r"\ba\s+las?\b", t)):
+        return None
+    if len(re.findall(r"\ba\s+las?\b", t)) > 1:
+        return None
+    if "en media hora" in t:
+        due = base + timedelta(minutes=30)
+    elif relative:
+        value = relative.group(1)
+        amount = int(value) if value.isdigit() else SPANISH_HOURS.get(value, 0)
+        if not 0 < amount <= 1440:
+            return None
+        due = base + timedelta(**({"minutes": amount} if relative.group(2).startswith("min") else {"hours": amount}))
     else:
-        due = due.replace(second=0, microsecond=0)
+        # Weekdays and calendar dates need an authoritative scheduler; this
+        # small parser deliberately accepts only hoy/mañana/pasado mañana.
+        if "pasado manana" in t:
+            due = base + timedelta(days=2)
+        elif re.search(r"\bmanana\b", t):
+            due = base + timedelta(days=1)
+        elif re.search(r"\bhoy\b", t):
+            due = base
+        else:
+            return None
+        clock = re.search(r"\ba\s+las?\s+(\d{1,2}|una|uno|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?::(\d{2}))?\s*(a\.?\s*m\.?|p\.?\s*m\.?|de\s+la\s+manana|de\s+la\s+tarde|de\s+la\s+noche)?", t)
+        if not clock:
+            return None
+        raw_hour = clock.group(1)
+        hour = int(raw_hour) if raw_hour.isdigit() else SPANISH_HOURS[raw_hour]
+        minute = int(clock.group(2) or 0)
+        marker = re.sub(r"[.\s]", "", clock.group(3) or "")
+        if minute > 59 or hour > 23:
+            return None
+        if marker:
+            if not 1 <= hour <= 12:
+                return None
+            if marker in {"pm", "delatarde", "delanoche"} and hour < 12:
+                hour += 12
+            elif marker in {"am", "delamanana"} and hour == 12:
+                hour = 0
+        elif 1 <= hour <= 12:
+            return None
+        due = due.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    due = due.replace(microsecond=0)
+    if due <= base:
+        return None
     return {
         "start": due.isoformat(),
         "timezone": "America/Bogota",
@@ -342,19 +451,84 @@ def plan_capture(payload: dict[str, Any]) -> dict[str, Any]:
 
 def client_requests_write(payload: dict[str, Any]) -> bool:
     context = payload.get("context") or {}
+    if not isinstance(context, dict):
+        return False
     return context.get("dry_run") is False and context.get("allow_write") is True
 
 
-def write_is_authorized(payload: dict[str, Any], cfg: Config) -> bool:
-    domain, _, _ = canonical_domain(payload)
+def exact_write_route(payload: dict[str, Any]) -> tuple[str, str, str] | None:
+    """Return the unmodified route triple used for server write gates."""
     route = payload.get("route") or {}
+    if not isinstance(route, dict):
+        return None
+    agent = route.get("agent")
+    intent = route.get("intent")
+    domain = route.get("domain")
+    if not isinstance(agent, str) or not isinstance(intent, str) or not isinstance(domain, str):
+        return None
+    return agent, intent, domain
+
+
+def valid_expense_cancellation_request(payload: dict[str, Any]) -> bool:
+    """Validate a no-write cancellation independently of new-write gates."""
+    if exact_write_route(payload) != ("megan", "expense", "megan.expense_capture"):
+        return False
+    context = payload.get("context") or {}
+    if not isinstance(context, dict) or not client_requests_write(payload):
+        return False
+    operation_id = context.get("operation_id")
     return (
+        context.get("user_cancellation") is True
+        and context.get("user_confirmation") is False
+        and context.get("requires_confirmation") is not True
+        and context.get("allow_firefly_write") is False
+        and context.get("confirmation_token") is None
+        and isinstance(operation_id, str)
+        and EXPENSE_OPERATION_ID_RE.fullmatch(operation_id) is not None
+    )
+
+
+def write_is_authorized(payload: dict[str, Any], cfg: Config) -> bool:
+    route = exact_write_route(payload)
+    context = payload.get("context") or {}
+    if route is None or not isinstance(context, dict):
+        return False
+    if not (
         client_requests_write(payload)
         and cfg.write_enabled
-        and route.get("agent") == "aura"
-        and route.get("intent") == "grocery"
-        and domain in SUPPORTED_WRITE_DOMAINS
-        and domain in cfg.write_domains
+        and route in SUPPORTED_WRITE_ROUTES
+        and route[2] in cfg.write_domains
+    ):
+        return False
+    confirmation_token = context.get("confirmation_token")
+    operation_id = context.get("operation_id")
+    confirmed = context.get("user_confirmation") is True
+    cancelling = context.get("user_cancellation") is True
+    cancellation_value = context.get("user_cancellation")
+    if cancellation_value is not None and not isinstance(cancellation_value, bool):
+        return False
+    has_confirmation_token = isinstance(confirmation_token, str) and bool(confirmation_token)
+    has_operation_id = isinstance(operation_id, str) and bool(operation_id)
+    if route == ("megan", "expense", "megan.expense_capture"):
+        if cancelling:
+            return valid_expense_cancellation_request(payload)
+        if context.get("allow_firefly_write") is not True:
+            return False
+        if confirmed:
+            return (
+                has_confirmation_token
+                and isinstance(operation_id, str)
+                and EXPENSE_OPERATION_ID_RE.fullmatch(operation_id) is not None
+            )
+        return not has_confirmation_token and not has_operation_id
+    # Every non-Megan adapter rejects broad Firefly and financial-confirmation
+    # capabilities explicitly; these fields cannot hitchhike on Capturar.
+    return (
+        context.get("allow_firefly_write") is not True
+        and not confirmed
+        and not cancelling
+        and not has_confirmation_token
+        and not has_operation_id
     )
 
 
@@ -364,6 +538,7 @@ def run_aura_helper(
     *,
     dry_run: bool,
     text_override: str | None = None,
+    requested_due: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     helper = cfg.aura_helper
     if helper is None or not helper.is_file():
@@ -373,6 +548,12 @@ def run_aura_helper(
         "text": text_override or str(capture.get("text") or "").strip(),
         "request_id": str(payload.get("request_id") or ""),
     }
+    if exact_write_route(payload) == ("aura", "reminder", "aura.reminder_capture"):
+        helper_payload.update(
+            created_at=payload.get("created_at"),
+            timezone="America/Bogota",
+            interpreted_due=requested_due or parse_spanish_due(str(capture.get("text") or ""), parse_created_at(payload)),
+        )
     command = [
         sys.executable,
         str(helper),
@@ -398,27 +579,979 @@ def run_aura_helper(
         result = json.loads(process.stdout)
     except (json.JSONDecodeError, TypeError) as error:
         raise WriteExecutionError("aura_helper_invalid_response") from error
-    if process.returncode != 0 or result.get("ok") is not True:
+    if process.returncode != 0 or not isinstance(result, dict) or result.get("ok") is not True:
         raise WriteExecutionError("aura_helper_rejected")
     return result
 
 
-def execute_capture(payload: dict[str, Any], cfg: Config) -> dict[str, Any]:
-    planned = plan_capture(payload)
-    if not write_is_authorized(payload, cfg):
-        return planned
+def run_expense_helper(
+    payload: dict[str, Any],
+    cfg: Config,
+    *,
+    dry_run: bool,
+    operation_id: str,
+    expected_plan_hash: str | None = None,
+    confirmed_plan: dict[str, Any] | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    helper = cfg.expense_helper
+    if helper is None or not helper.is_file():
+        raise WriteExecutionError("expense_helper_unavailable")
+    if EXPENSE_OPERATION_ID_RE.fullmatch(operation_id) is None:
+        raise WriteExecutionError("expense_helper_invalid_operation_id")
+    helper_payload: dict[str, Any] = {
+        "request_id": str(payload.get("request_id") or ""),
+        "operation_id": operation_id,
+        "created_at": payload.get("created_at"),
+        "capture": payload.get("capture") or {},
+        "entities": payload.get("entities") or {},
+    }
+    if expected_plan_hash:
+        helper_payload["expected_plan_hash"] = expected_plan_hash
+    if confirmed_plan is not None:
+        helper_payload["confirmed_plan"] = confirmed_plan
+    command = [sys.executable, str(helper), "--payload-file", "-"]
+    if dry_run:
+        command.append("--dry-run")
+    if mode:
+        if mode not in {"plan", "reconcile", "commit"}:
+            raise WriteExecutionError("expense_helper_invalid_mode")
+        command.extend(("--mode", mode))
+    try:
+        process = subprocess.run(
+            command,
+            input=json.dumps(helper_payload, ensure_ascii=False),
+            text=True,
+            capture_output=True,
+            timeout=90,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise WriteExecutionError("expense_helper_failed") from error
+    try:
+        result = json.loads(process.stdout)
+    except (json.JSONDecodeError, TypeError) as error:
+        raise WriteExecutionError("expense_helper_invalid_response") from error
+    if process.returncode != 0 or not isinstance(result, dict) or result.get("ok") is not True:
+        raise WriteExecutionError("expense_helper_rejected")
+    return result
 
+
+def reject_live_expense_without_write(
+    planned: dict[str, Any],
+    question: str,
+    notes: str,
+    *,
+    status: str = "rejected",
+) -> dict[str, Any]:
+    planned.update(
+        status=status,
+        dry_run=False,
+        write_committed=False,
+        display_message=watch_safe_text(question, "Megan necesita confirmación"),
+        question=question if status == "needs_input" else None,
+        gates_missing=[],
+    )
+    planned["plan"].update(would_write=False, side_effects=[], notes=notes)
+    return planned
+
+
+def cancelled_expense_response(
+    planned: dict[str, Any],
+    operation_id: str,
+    *,
+    duplicate: bool = False,
+    expired: bool = False,
+) -> dict[str, Any]:
+    planned.update(
+        status="cancelled",
+        dry_run=False,
+        write_committed=False,
+        operation_id=operation_id,
+        display_message=(
+            "El preview ya había vencido · no se registró ningún gasto"
+            if expired
+            else "Gasto cancelado · no se registró nada"
+        ),
+        question=None,
+        duplicate=duplicate,
+        gates_missing=[],
+    )
+    planned["plan"].update(
+        would_write=False,
+        side_effects=[],
+        notes="The durable expense preview is inactive; no Firefly POST was attempted.",
+    )
+    return planned
+
+
+def current_cached_expense_preview(
+    conn: sqlite3.Connection,
+    cached: dict[str, Any],
+) -> dict[str, Any]:
+    """Expose a cached confirmation token only while its operation is preview."""
+    if (
+        cached.get("status") != "needs_confirmation"
+        or cached.get("domain") != "megan.expense_capture"
+    ):
+        return cached
+    operation_id = cached.get("operation_id")
+    if not isinstance(operation_id, str) or EXPENSE_OPERATION_ID_RE.fullmatch(operation_id) is None:
+        operation_status = None
+    else:
+        expire_stale_expense_previews(conn)
+        row = conn.execute(
+            "SELECT status FROM expense_operation_ledger WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()
+        operation_status = str(row[0]) if row else None
+    if operation_status == "preview":
+        return cached
+    scrubbed = dict(cached)
+    scrubbed.pop("confirmation_token", None)
+    scrubbed.pop("confirmation", None)
+    scrubbed.update(
+        status="rejected",
+        dry_run=False,
+        write_committed=False,
+        operation_id=operation_id,
+        duplicate=True,
+        display_message="Ese preview ya no está activo. Consulta el estado del gasto antes de volver a dictarlo.",
+        question=None,
+        gates_missing=[],
+    )
+    plan = scrubbed.get("plan")
+    if not isinstance(plan, dict):
+        plan = {}
+        scrubbed["plan"] = plan
+    plan.update(
+        would_write=False,
+        side_effects=[],
+        notes=f"Cached confirmation suppressed for inactive operation state {operation_status or 'missing'}.",
+    )
+    return scrubbed
+
+
+def expense_operation_binding(payload: dict[str, Any]) -> bytes:
     request_id = str(payload.get("request_id") or "")
-    domain, _, _ = canonical_domain(payload)
-    if domain != "aura.grocery_capture":
-        return planned
+    source = payload.get("source") or {}
+    capture = payload.get("capture") or {}
+    device_id = str(source.get("device_id") or "") if isinstance(source, dict) else ""
+    text = str(capture.get("text") or "").strip() if isinstance(capture, dict) else ""
+    text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return f"expense-operation.v1\n{request_id}\n{device_id}\n{text_hash}".encode("utf-8")
 
+
+def make_expense_operation_id(payload: dict[str, Any], secret: bytes) -> str:
+    digest = hmac.new(secret, expense_operation_binding(payload), hashlib.sha256).hexdigest()
+    return f"exp_{digest[:32]}"
+
+
+def expense_confirmation_binding(
+    payload: dict[str, Any],
+    expires_at: int,
+    operation_id: str,
+    plan_hash: str,
+) -> bytes:
+    source = payload.get("source") or {}
+    capture = payload.get("capture") or {}
+    device_id = str(source.get("device_id") or "") if isinstance(source, dict) else ""
+    text = str(capture.get("text") or "").strip() if isinstance(capture, dict) else ""
+    text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return (
+        f"expense-confirmation.v2\n{expires_at}\n{operation_id}\n{device_id}\n{text_hash}\n{plan_hash}"
+    ).encode("utf-8")
+
+
+def make_expense_confirmation_token(
+    payload: dict[str, Any],
+    operation_id: str,
+    plan_hash: str,
+    secret: bytes,
+    *,
+    now: int | None = None,
+) -> str:
+    if EXPENSE_OPERATION_ID_RE.fullmatch(operation_id) is None:
+        raise WriteExecutionError("expense_confirmation_invalid_operation_id")
+    if re.fullmatch(r"[0-9a-f]{64}", plan_hash) is None:
+        raise WriteExecutionError("expense_confirmation_invalid_plan_hash")
+    expires_at = (int(time.time()) if now is None else now) + EXPENSE_CONFIRMATION_TTL_SECONDS
+    signature = hmac.new(
+        secret,
+        expense_confirmation_binding(payload, expires_at, operation_id, plan_hash),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"v2.{expires_at}.{operation_id}.{plan_hash}.{signature}"
+
+
+def expense_confirmation_state(
+    payload: dict[str, Any],
+    operation_id: str,
+    plan_hash: str,
+    secret: bytes,
+    *,
+    now: int | None = None,
+) -> str:
+    """Return ``valid``, ``expired``, or ``invalid`` for a signed preview.
+
+    Expired signatures remain cryptographically authenticated so the server can
+    reconcile the same durable operation before offering a refreshed token.
+    """
+    context = payload.get("context") or {}
+    if not isinstance(context, dict) or context.get("user_confirmation") is not True:
+        return "invalid"
+    if context.get("operation_id") != operation_id:
+        return "invalid"
+    token = str(context.get("confirmation_token") or "")
+    parts = token.split(".")
+    if (
+        len(parts) != 5
+        or parts[0] != "v2"
+        or parts[2] != operation_id
+        or parts[3] != plan_hash
+        or EXPENSE_OPERATION_ID_RE.fullmatch(operation_id) is None
+    ):
+        return "invalid"
+    try:
+        expires_at = int(parts[1])
+    except ValueError:
+        return "invalid"
+    current = int(time.time()) if now is None else now
+    if expires_at <= 0 or expires_at > current + EXPENSE_CONFIRMATION_TTL_SECONDS:
+        return "invalid"
+    expected = hmac.new(
+        secret,
+        expense_confirmation_binding(payload, expires_at, operation_id, plan_hash),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(parts[4], expected):
+        return "invalid"
+    return "expired" if expires_at < current else "valid"
+
+
+def expense_confirmation_is_valid(
+    payload: dict[str, Any],
+    operation_id: str,
+    plan_hash: str,
+    secret: bytes,
+    *,
+    now: int | None = None,
+) -> bool:
+    return expense_confirmation_state(
+        payload,
+        operation_id,
+        plan_hash,
+        secret,
+        now=now,
+    ) == "valid"
+
+
+def renew_expense_preview_lease(cfg: Config, operation_id: str) -> bool:
+    """Renew the durable lease before issuing a fresh confirmation token."""
+    init_db(cfg.ledger_path)
+    with sqlite3.connect(cfg.ledger_path, timeout=65.0) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.execute(
+            "UPDATE expense_operation_ledger SET updated_at = ? WHERE operation_id = ? AND status = 'preview'",
+            (now_iso(), operation_id),
+        )
+        if cursor.rowcount != 1:
+            conn.rollback()
+            return False
+        conn.commit()
+        return True
+
+
+def request_expense_confirmation(
+    payload: dict[str, Any],
+    cfg: Config,
+    planned: dict[str, Any],
+    expense_plan: dict[str, Any],
+    operation_id: str,
+    plan_hash: str,
+) -> dict[str, Any]:
+    if not renew_expense_preview_lease(cfg, operation_id):
+        raise WriteExecutionError("expense_preview_inactive_before_confirmation")
+    amount = f"${expense_plan['amount_cop']:,}".replace(",", ".")
+    source_name = watch_safe_text(expense_plan.get("source_name"), "Cuenta", 42)
+    description = watch_safe_text(expense_plan.get("description"), "Gasto", 48)
+    planned.update(
+        status="needs_confirmation",
+        dry_run=False,
+        write_committed=False,
+        display_message=f"Confirma {amount} · {source_name}",
+        question=f"¿Registrar {amount} por {description} desde {source_name}?",
+        gates_missing=[],
+        operation_id=operation_id,
+        confirmation_token=make_expense_confirmation_token(
+            payload,
+            operation_id,
+            plan_hash,
+            cfg.secret,
+        ),
+        confirmation={
+            "amount_cop": expense_plan["amount_cop"],
+            "currency_code": "COP",
+            "description": description,
+            "source_name": source_name,
+            "category_name": watch_safe_text(expense_plan.get("category_name"), "Categoría", 42),
+            "budget_name": watch_safe_text(expense_plan.get("budget_name"), "Presupuesto", 42),
+        },
+    )
+    planned["plan"].update(
+        would_write=False,
+        side_effects=[],
+        notes="GET-only expense plan is awaiting a short-lived server-signed Watch confirmation.",
+    )
+    return planned
+
+
+def expense_capture_fingerprint(payload: dict[str, Any], secret: bytes) -> str:
+    source = payload.get("source") or {}
+    capture = payload.get("capture") or {}
+    device_id = str(source.get("device_id") or "") if isinstance(source, dict) else ""
+    text = str(capture.get("text") or "").strip() if isinstance(capture, dict) else ""
+    binding = f"expense-capture.v1\n{device_id}\n{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+    return hmac.new(secret, binding.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _expense_operation_from_row(row: tuple[Any, ...] | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    keys = (
+        "operation_id",
+        "capture_fingerprint",
+        "plan_hash",
+        "plan_json",
+        "external_id",
+        "status",
+        "response_json",
+        "created_at",
+        "updated_at",
+    )
+    result: dict[str, Any] = dict(zip(keys, row))
+    try:
+        result["plan"] = json.loads(str(result.pop("plan_json")))
+    except (TypeError, json.JSONDecodeError) as error:
+        raise WriteExecutionError("expense_operation_corrupt_plan") from error
+    return result
+
+
+def load_expense_operation(cfg: Config, operation_id: str) -> dict[str, Any] | None:
+    init_db(cfg.ledger_path)
+    with sqlite3.connect(cfg.ledger_path) as conn:
+        row = conn.execute(
+            "SELECT operation_id, capture_fingerprint, plan_hash, plan_json, external_id, status, response_json, created_at, updated_at FROM expense_operation_ledger WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()
+    return _expense_operation_from_row(row)
+
+
+def expire_stale_expense_previews(conn: sqlite3.Connection) -> int:
+    """Expire only unclaimed previews older than the confirmation window."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=EXPENSE_PREVIEW_TTL_SECONDS)).isoformat()
+    cursor = conn.execute(
+        "UPDATE expense_operation_ledger SET status = 'expired', updated_at = ? WHERE status = 'preview' AND updated_at <= ?",
+        (now_iso(), cutoff),
+    )
+    return cursor.rowcount
+
+
+def load_active_expense_operation(cfg: Config, capture_fingerprint: str) -> dict[str, Any] | None:
+    init_db(cfg.ledger_path)
+    with sqlite3.connect(cfg.ledger_path, timeout=65.0) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        expire_stale_expense_previews(conn)
+        row = conn.execute(
+            """
+            SELECT operation_id, capture_fingerprint, plan_hash, plan_json, external_id, status, response_json, created_at, updated_at
+            FROM expense_operation_ledger
+            WHERE capture_fingerprint = ? AND status IN ('preview', 'writing', 'uncertain')
+            ORDER BY CASE status WHEN 'uncertain' THEN 0 WHEN 'writing' THEN 1 ELSE 2 END, updated_at DESC
+            LIMIT 1
+            """,
+            (capture_fingerprint,),
+        ).fetchone()
+        conn.commit()
+    return _expense_operation_from_row(row)
+
+
+def persist_expense_preview(
+    cfg: Config,
+    operation_id: str,
+    capture_fingerprint: str,
+    plan_hash: str,
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    external_id = f"hermes-watch:{operation_id}"
+    if plan.get("operation_id") != operation_id or plan.get("external_id") != external_id:
+        raise WriteExecutionError("expense_helper_operation_mismatch")
+    ts = now_iso()
+    init_db(cfg.ledger_path)
+    with sqlite3.connect(cfg.ledger_path, timeout=65.0) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        expire_stale_expense_previews(conn)
+        existing = conn.execute(
+            "SELECT operation_id, capture_fingerprint, plan_hash, plan_json, external_id, status, response_json, created_at, updated_at FROM expense_operation_ledger WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()
+        if existing is None:
+            # Different delivery IDs intentionally derive different candidate
+            # operation IDs. Serialize preview creation and reuse the first
+            # active operation for the same device/text fingerprint so two
+            # concurrent previews cannot later authorize two withdrawals.
+            active = conn.execute(
+                """
+                SELECT operation_id, capture_fingerprint, plan_hash, plan_json, external_id, status, response_json, created_at, updated_at
+                FROM expense_operation_ledger
+                WHERE capture_fingerprint = ? AND status IN ('preview', 'writing', 'uncertain')
+                ORDER BY CASE status WHEN 'uncertain' THEN 0 WHEN 'writing' THEN 1 ELSE 2 END, updated_at DESC
+                LIMIT 1
+                """,
+                (capture_fingerprint,),
+            ).fetchone()
+            if active is not None:
+                conn.commit()
+                resolved = _expense_operation_from_row(active)
+                if resolved is None:
+                    raise WriteExecutionError("expense_operation_missing_after_active_lookup")
+                return resolved
+            try:
+                conn.execute(
+                    "INSERT INTO expense_operation_ledger(operation_id, capture_fingerprint, plan_hash, plan_json, external_id, status, response_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'preview', NULL, ?, ?)",
+                    (
+                        operation_id,
+                        capture_fingerprint,
+                        plan_hash,
+                        json.dumps(plan, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+                        external_id,
+                        ts,
+                        ts,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise WriteExecutionError("expense_operation_identity_conflict") from error
+            conn.commit()
+        else:
+            parsed = _expense_operation_from_row(existing)
+            if not parsed or any(
+                (
+                    parsed["capture_fingerprint"] != capture_fingerprint,
+                    parsed["plan_hash"] != plan_hash,
+                    parsed["external_id"] != external_id,
+                    parsed["plan"] != plan,
+                )
+            ):
+                raise WriteExecutionError("expense_operation_identity_conflict")
+            conn.commit()
+    operation = load_expense_operation(cfg, operation_id)
+    if operation is None:
+        raise WriteExecutionError("expense_operation_missing_after_insert")
+    return operation
+
+
+def set_expense_operation_status(
+    cfg: Config,
+    operation_id: str,
+    status: str,
+    response: dict[str, Any] | None = None,
+) -> None:
+    # Preview creation, the writing claim, and uncertain recovery each have
+    # dedicated conditional helpers. This setter is intentionally terminal-only
+    # so no caller can accidentally move ``committed`` backwards.
+    if status != "committed" or not isinstance(response, dict):
+        raise WriteExecutionError("expense_operation_invalid_transition")
+    init_db(cfg.ledger_path)
+    response_json = json.dumps(response, ensure_ascii=False, separators=(",", ":"))
+    with sqlite3.connect(cfg.ledger_path, timeout=65.0) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.execute(
+            "UPDATE expense_operation_ledger SET status = 'committed', response_json = ?, updated_at = ? WHERE operation_id = ? AND status IN ('preview', 'writing', 'uncertain')",
+            (response_json, now_iso(), operation_id),
+        )
+        if cursor.rowcount != 1:
+            row = conn.execute(
+                "SELECT status FROM expense_operation_ledger WHERE operation_id = ?",
+                (operation_id,),
+            ).fetchone()
+            if row is None:
+                raise WriteExecutionError("expense_operation_missing")
+            if row[0] != "committed":
+                raise WriteExecutionError("expense_operation_invalid_transition")
+        conn.commit()
+
+
+def claim_expense_operation_for_write(cfg: Config, operation_id: str) -> bool:
+    """Atomically grant the one allowed transition into the POST boundary.
+
+    Multiple delivery IDs may carry the same signed operation confirmation.  A
+    plain status assignment lets two threads read ``preview`` and both enter the
+    helper's commit mode.  The conditional update below is the durable
+    compare-and-set: every loser must reconcile and may never issue a POST.
+    """
+    init_db(cfg.ledger_path)
+    with sqlite3.connect(cfg.ledger_path, timeout=65.0) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.execute(
+            "UPDATE expense_operation_ledger SET status = 'writing', updated_at = ? WHERE operation_id = ? AND status = 'preview'",
+            (now_iso(), operation_id),
+        )
+        conn.commit()
+    return cursor.rowcount == 1
+
+
+def cancel_expense_operation_if_preview(cfg: Config, operation_id: str) -> bool:
+    """Atomically revoke an unclaimed preview; later states are immutable here."""
+    init_db(cfg.ledger_path)
+    with sqlite3.connect(cfg.ledger_path, timeout=65.0) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.execute(
+            "UPDATE expense_operation_ledger SET status = 'cancelled', updated_at = ? WHERE operation_id = ? AND status = 'preview'",
+            (now_iso(), operation_id),
+        )
+        conn.commit()
+    return cursor.rowcount == 1
+
+
+def mark_expense_operation_uncertain_if_uncommitted(cfg: Config, operation_id: str) -> bool:
+    """Move only nonterminal states to ``uncertain``.
+
+    A slow concurrent reconciliation may have observed ``writing`` before
+    another worker proved and persisted ``committed``. Its stale result must
+    never move that terminal state backwards.
+    """
+    init_db(cfg.ledger_path)
+    with sqlite3.connect(cfg.ledger_path, timeout=65.0) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        cursor = conn.execute(
+            "UPDATE expense_operation_ledger SET status = 'uncertain', updated_at = ? WHERE operation_id = ? AND status IN ('preview', 'writing', 'uncertain')",
+            (now_iso(), operation_id),
+        )
+        conn.commit()
+    return cursor.rowcount == 1
+
+
+def expense_helper_identity_is_exact(
+    result: dict[str, Any],
+    operation_id: str,
+    plan_hash: str,
+    plan: dict[str, Any],
+) -> bool:
+    external_id = f"hermes-watch:{operation_id}"
+    return (
+        result.get("intent") == "expense"
+        and result.get("transaction_kind") == "cash_expense"
+        and result.get("operation_id") == operation_id
+        and result.get("external_id") == external_id
+        and result.get("plan_hash") == plan_hash
+        and result.get("plan") == plan
+        and plan.get("operation_id") == operation_id
+        and plan.get("external_id") == external_id
+    )
+
+
+def committed_expense_response(
+    payload: dict[str, Any],
+    operation: dict[str, Any],
+    committed: dict[str, Any],
+) -> dict[str, Any]:
+    operation_id = str(operation["operation_id"])
+    plan = operation["plan"]
+    if not expense_helper_identity_is_exact(
+        committed,
+        operation_id,
+        str(operation["plan_hash"]),
+        plan,
+    ):
+        raise WriteExecutionError("expense_helper_unproven_commit")
+    if (
+        committed.get("decision") not in EXPENSE_HELPER_WRITE_DECISIONS
+        or committed.get("write_committed") is not True
+    ):
+        raise WriteExecutionError("expense_helper_unproven_commit")
+    journal_ids = committed.get("journal_ids")
+    if not (
+        isinstance(journal_ids, list)
+        and len(journal_ids) == 1
+        and isinstance(journal_ids[0], str)
+        and journal_ids[0].strip()
+    ):
+        raise WriteExecutionError("expense_helper_missing_journal_id")
+    group_ids = committed.get("group_ids")
+    if not isinstance(group_ids, list):
+        group_ids = []
+    amount = f"${plan['amount_cop']:,}".replace(",", ".")
+    description = watch_safe_text(plan.get("description"), "Gasto", 48)
+    status = "duplicate" if committed.get("decision") == "duplicate" else "committed"
+    return {
+        "status": status,
+        "dry_run": False,
+        "write_committed": True,
+        "request_id": str(payload.get("request_id") or ""),
+        "operation_id": operation_id,
+        "domain": "megan.expense_capture",
+        "display_message": f"Gasto registrado ✅ · {amount} · {description}",
+        "question": None,
+        "duplicate": status == "duplicate",
+        "plan": {
+            "side_effects": ["firefly.withdrawal.write"],
+            "would_write": True,
+            "notes": "Exactly one canonical Firefly withdrawal was reconciled for this durable operation ID.",
+        },
+        "external_ids": {
+            "expense_operation_id": operation_id,
+            "firefly_external_id": operation["external_id"],
+            "firefly_journal_ids": [journal_ids[0].strip()],
+            "firefly_group_ids": [str(value) for value in group_ids if str(value).strip()],
+        },
+        "gates_missing": [],
+    }
+
+
+def expense_pending_review_response(planned: dict[str, Any], operation_id: str, reason: str) -> dict[str, Any]:
+    response = reject_live_expense_without_write(
+        planned,
+        "El resultado de Firefly no es concluyente; Megan debe revisarlo.",
+        f"Operation {operation_id} is durable and reconciliation-only: {reason}.",
+    )
+    response["operation_id"] = operation_id
+    response["display_message"] = "Gasto pendiente de revisión · no reintentaré la escritura"
+    return response
+
+
+def reconcile_expense_operation(
+    payload: dict[str, Any],
+    cfg: Config,
+    planned: dict[str, Any],
+    operation: dict[str, Any],
+) -> tuple[str, dict[str, Any] | None]:
+    result = run_expense_helper(
+        payload,
+        cfg,
+        dry_run=False,
+        operation_id=str(operation["operation_id"]),
+        expected_plan_hash=str(operation["plan_hash"]),
+        confirmed_plan=operation["plan"],
+        mode="reconcile",
+    )
+    if not expense_helper_identity_is_exact(
+        result,
+        str(operation["operation_id"]),
+        str(operation["plan_hash"]),
+        operation["plan"],
+    ):
+        if result.get("decision") == "needs_confirmation":
+            mark_expense_operation_uncertain_if_uncommitted(cfg, str(operation["operation_id"]))
+            return "conflict", expense_pending_review_response(
+                planned,
+                str(operation["operation_id"]),
+                watch_safe_text(result.get("error"), "identity_conflict", 80),
+            )
+        raise WriteExecutionError("expense_helper_reconciliation_identity_mismatch")
+    if result.get("decision") in EXPENSE_HELPER_WRITE_DECISIONS and result.get("write_committed") is True:
+        response = committed_expense_response(payload, operation, result)
+        set_expense_operation_status(cfg, str(operation["operation_id"]), "committed", response)
+        return "committed", response
+    if result.get("decision") == "absent" and result.get("post_attempted") is False:
+        return "absent", None
+    if result.get("decision") == "reconciliation_error" and result.get("post_attempted") is False:
+        return "unavailable", reject_live_expense_without_write(
+            planned,
+            "No pude verificar Firefly; intenta nuevamente.",
+            "Read-only external-id reconciliation was unavailable; no POST was attempted.",
+        )
+    mark_expense_operation_uncertain_if_uncommitted(cfg, str(operation["operation_id"]))
+    return "uncertain", expense_pending_review_response(
+        planned,
+        str(operation["operation_id"]),
+        watch_safe_text(result.get("error"), "reconciliation_failed", 80),
+    )
+
+
+def execute_expense_capture(
+    payload: dict[str, Any],
+    cfg: Config,
+    planned: dict[str, Any],
+) -> dict[str, Any]:
+    capture_text = str((payload.get("capture") or {}).get("text") or "").strip()
+    if EXPENSE_BLOCKED_RE.search(capture_text):
+        return reject_live_expense_without_write(
+            planned,
+            "Usa Megan para tarjetas, FP, transferencias o movimientos múltiples.",
+            "Blocked unsupported financial flow before invoking the expense adapter.",
+        )
+
+    context = payload.get("context") or {}
+    confirmed = isinstance(context, dict) and context.get("user_confirmation") is True
+    cancelling = isinstance(context, dict) and context.get("user_cancellation") is True
+    capture_fingerprint = expense_capture_fingerprint(payload, cfg.secret)
+
+    if cancelling:
+        operation_id = str(context.get("operation_id") or "")
+        if EXPENSE_OPERATION_ID_RE.fullmatch(operation_id) is None:
+            return reject_live_expense_without_write(
+                planned,
+                "La cancelación no tiene una identidad válida; no cambié nada.",
+                "Rejected malformed expense cancellation identity before invoking the adapter.",
+            )
+        operation = load_expense_operation(cfg, operation_id)
+        if operation is None or operation["capture_fingerprint"] != capture_fingerprint:
+            return reject_live_expense_without_write(
+                planned,
+                "No encontré ese preview pendiente; no cambié nada.",
+                "Rejected cancellation without an exact durable operation binding.",
+            )
+        planned["operation_id"] = operation_id
+        if cancel_expense_operation_if_preview(cfg, operation_id):
+            return cancelled_expense_response(planned, operation_id)
+        current = load_expense_operation(cfg, operation_id)
+        if current is None:
+            raise WriteExecutionError("expense_operation_missing_after_cancel")
+        if current["status"] in {"cancelled", "expired"}:
+            return cancelled_expense_response(
+                planned,
+                operation_id,
+                duplicate=True,
+                expired=current["status"] == "expired",
+            )
+        return reject_live_expense_without_write(
+            planned,
+            "Ese gasto ya no puede cancelarse automáticamente; revisa con Megan.",
+            f"Cancellation refused for monotonic operation state {current['status']}.",
+        )
+
+    if confirmed:
+        operation_id = str(context.get("operation_id") or "")
+        if EXPENSE_OPERATION_ID_RE.fullmatch(operation_id) is None:
+            return reject_live_expense_without_write(
+                planned,
+                "La confirmación no tiene una identidad válida; revisa el gasto nuevamente.",
+                "Rejected malformed expense operation identity before invoking the adapter.",
+            )
+        operation = load_expense_operation(cfg, operation_id)
+        if operation is None or operation["capture_fingerprint"] != capture_fingerprint:
+            return reject_live_expense_without_write(
+                planned,
+                "No encontré el preview firmado para esta confirmación.",
+                "Rejected confirmation without an exact durable operation binding.",
+            )
+    else:
+        operation_id = make_expense_operation_id(payload, cfg.secret)
+        operation = load_expense_operation(cfg, operation_id)
+        if operation is not None and operation["capture_fingerprint"] != capture_fingerprint:
+            raise WriteExecutionError("expense_operation_identity_conflict")
+        if operation is None:
+            operation = load_active_expense_operation(cfg, capture_fingerprint)
+            if operation is not None:
+                operation_id = str(operation["operation_id"])
+
+    if operation is not None:
+        # Retain identity only after its durable device/text binding is proven.
+        planned["operation_id"] = operation_id
+        if not confirmed and operation["status"] != "preview":
+            return reject_live_expense_without_write(
+                planned,
+                "Ese preview ya no está activo. Consulta el estado del gasto antes de volver a dictarlo.",
+                f"Unconfirmed delivery recovered inactive durable operation state {operation['status']}; no adapter invoked.",
+            )
+        if operation["status"] in {"cancelled", "expired"}:
+            return reject_live_expense_without_write(
+                planned,
+                "Ese preview ya no está activo; dicta el gasto nuevamente si aún lo necesitas.",
+                f"Rejected confirmation for inactive operation state {operation['status']}.",
+            )
+        if operation["status"] == "committed" and operation.get("response_json"):
+            cached = json.loads(str(operation["response_json"]))
+            cached.update(
+                status="duplicate",
+                duplicate=True,
+                request_id=str(payload.get("request_id") or ""),
+            )
+            return cached
+
+        if operation["plan"].get("currency_code") != "COP" and operation["status"] == "preview":
+            cancel_expense_operation_if_preview(cfg, operation_id)
+            return reject_live_expense_without_write(
+                planned,
+                "Ese preview no verifica COP; dicta el gasto nuevamente para revisarlo.",
+                "Legacy currencyless preview invalidated before any Firefly POST.",
+            )
+
+        if confirmed or operation["status"] in {"writing", "uncertain"}:
+            reconciliation, reconciled_response = reconcile_expense_operation(
+                payload,
+                cfg,
+                planned,
+                operation,
+            )
+            if reconciled_response is not None:
+                return reconciled_response
+            if operation["status"] in {"writing", "uncertain"}:
+                mark_expense_operation_uncertain_if_uncommitted(cfg, operation_id)
+                return expense_pending_review_response(planned, operation_id, reconciliation)
+
+        if not confirmed:
+            return request_expense_confirmation(
+                payload,
+                cfg,
+                planned,
+                operation["plan"],
+                operation_id,
+                str(operation["plan_hash"]),
+            )
+
+        confirmation_state = expense_confirmation_state(
+            payload,
+            operation_id,
+            str(operation["plan_hash"]),
+            cfg.secret,
+        )
+        if confirmation_state == "expired":
+            return request_expense_confirmation(
+                payload,
+                cfg,
+                planned,
+                operation["plan"],
+                operation_id,
+                str(operation["plan_hash"]),
+            )
+        if confirmation_state != "valid":
+            return reject_live_expense_without_write(
+                planned,
+                "La confirmación no coincide; revisa el gasto nuevamente.",
+                "Rejected invalid server-signed expense confirmation after read-only reconciliation.",
+            )
+
+        # This durable compare-and-set is the point of no automatic return:
+        # exactly one confirmation delivery may cross into helper commit mode.
+        # Every concurrent loser and every later retry is reconciliation-only,
+        # even if the winner crashes before its HTTP response is stored.
+        if not claim_expense_operation_for_write(cfg, operation_id):
+            current = load_expense_operation(cfg, operation_id)
+            if current is None:
+                raise WriteExecutionError("expense_operation_missing_after_claim")
+            if current["status"] == "committed" and current.get("response_json"):
+                cached = json.loads(str(current["response_json"]))
+                cached.update(
+                    status="duplicate",
+                    duplicate=True,
+                    request_id=str(payload.get("request_id") or ""),
+                )
+                return cached
+            if current["status"] in {"cancelled", "expired"}:
+                return reject_live_expense_without_write(
+                    planned,
+                    "Ese preview ya no está activo. Consulta el estado del gasto antes de volver a dictarlo.",
+                    f"Confirmation lost the preview compare-and-set to {current['status']}.",
+                )
+            reconciliation, reconciled_response = reconcile_expense_operation(
+                payload,
+                cfg,
+                planned,
+                current,
+            )
+            if reconciled_response is not None:
+                return reconciled_response
+            if current["status"] in {"writing", "uncertain"}:
+                mark_expense_operation_uncertain_if_uncommitted(cfg, operation_id)
+                return expense_pending_review_response(planned, operation_id, reconciliation)
+            raise WriteExecutionError("expense_operation_claim_conflict")
+        committed = run_expense_helper(
+            payload,
+            cfg,
+            dry_run=False,
+            operation_id=operation_id,
+            expected_plan_hash=str(operation["plan_hash"]),
+            confirmed_plan=operation["plan"],
+            mode="commit",
+        )
+        if (
+            expense_helper_identity_is_exact(
+                committed,
+                operation_id,
+                str(operation["plan_hash"]),
+                operation["plan"],
+            )
+            and committed.get("decision") in EXPENSE_HELPER_WRITE_DECISIONS
+            and committed.get("write_committed") is True
+        ):
+            response = committed_expense_response(payload, operation, committed)
+            set_expense_operation_status(cfg, operation_id, "committed", response)
+            return response
+        mark_expense_operation_uncertain_if_uncommitted(cfg, operation_id)
+        return expense_pending_review_response(
+            planned,
+            operation_id,
+            watch_safe_text(committed.get("error"), "unproven_commit", 80),
+        )
+
+    preflight = run_expense_helper(
+        payload,
+        cfg,
+        dry_run=True,
+        operation_id=operation_id,
+        mode="plan",
+    )
+    if preflight.get("intent") != "expense":
+        raise WriteExecutionError("expense_helper_domain_mismatch")
+    if preflight.get("decision") == "needs_confirmation":
+        return reject_live_expense_without_write(
+            planned,
+            watch_safe_text(preflight.get("question"), "Megan necesita más información", 180),
+            f"Expense adapter preflight stopped safely: {watch_safe_text(preflight.get('error'), 'needs_input', 80)}.",
+            status="needs_input",
+        )
+    if preflight.get("decision") != "auto_write" or preflight.get("transaction_kind") != "cash_expense":
+        raise WriteExecutionError("expense_helper_unsafe_preflight")
+    plan_hash = str(preflight.get("plan_hash") or "")
+    expense_plan = preflight.get("plan")
+    if not re.fullmatch(r"[0-9a-f]{64}", plan_hash) or not isinstance(expense_plan, dict):
+        raise WriteExecutionError("expense_helper_invalid_plan")
+    if not expense_helper_identity_is_exact(preflight, operation_id, plan_hash, expense_plan):
+        raise WriteExecutionError("expense_helper_operation_mismatch")
+    if not (
+        expense_plan.get("currency_code") == "COP"
+        and type(expense_plan.get("amount_cop")) is int
+        and 1000 <= expense_plan["amount_cop"] <= EXPENSE_MAX_AMOUNT_COP
+        and all(
+            isinstance(expense_plan.get(key), str) and expense_plan[key].strip()
+            for key in ("description", "source_name", "category_name", "budget_name")
+        )
+    ):
+        raise WriteExecutionError("expense_helper_incomplete_plan")
+    operation = persist_expense_preview(
+        cfg,
+        operation_id,
+        capture_fingerprint,
+        plan_hash,
+        expense_plan,
+    )
+    return request_expense_confirmation(
+        payload,
+        cfg,
+        planned,
+        operation["plan"],
+        str(operation["operation_id"]),
+        str(operation["plan_hash"]),
+    )
+
+
+def execute_grocery_capture(
+    payload: dict[str, Any],
+    cfg: Config,
+    planned: dict[str, Any],
+) -> dict[str, Any]:
     # The route is not enough to authorize a side effect. The deterministic
     # helper must independently classify the dictation as a grocery operation.
     capture_text = str((payload.get("capture") or {}).get("text") or "").strip()
+    normalized_text = normalize_reminder_command_text(capture_text)
+    if REMINDER_DIRECT_MUTATION_RE.search(normalized_text) or re.search(r"\b(?:comprad[oa]s?|disponibles?|ya\s+(?:tengo|tenemos|compre))\b", normalized_text):
+        planned.update(status="rejected", dry_run=False, write_committed=False, question=None, gates_missing=[], display_message="Solo agrego faltantes de mercado · no cambié nada")
+        planned["plan"].update(would_write=False, side_effects=[], notes="MVP grocery route supports additions only; completion/removal rejected before helper.")
+        return planned
     preflight = run_aura_helper(payload, cfg, dry_run=True)
     helper_text = capture_text
-    if preflight.get("intent") in {"task_unscheduled", "note"} and not re.search(
+    if preflight.get("intent") in {"task_unscheduled", "note"} and not REMINDER_BARE_TASK_PREFIX_RE.search(capture_text) and not re.search(
         r"\b(anota|guarda|idea|gasto|pague|pagué|compre|compré|enciende|apaga|puerta|alarma)\b|\d[\d.,]*\s*(mil|cop|pesos)",
         capture_text.lower(),
     ):
@@ -426,22 +1559,31 @@ def execute_capture(payload: dict[str, Any], cfg: Config) -> dict[str, Any]:
         # "leche". Give the existing Aura helper the missing route context.
         helper_text = f"falta {capture_text}"
         preflight = run_aura_helper(payload, cfg, dry_run=True, text_override=helper_text)
-    if preflight.get("intent") not in {"grocery", "grocery_done"}:
+    if preflight.get("intent") not in GROCERY_HELPER_WRITE_INTENTS:
         planned.update(
-            status="needs_confirmation",
-            display_message="No parece un artículo de mercado · no cambié nada",
-            question="¿Qué artículo quieres agregar o marcar como comprado?",
+            status="rejected",
+            dry_run=False,
+            write_committed=False,
+            display_message="Solo agrego faltantes de mercado · no cambié nada",
+            question=None,
+            gates_missing=[],
+        )
+        planned["plan"].update(
+            would_write=False,
+            notes="Aura helper preflight did not classify a grocery operation.",
         )
         return planned
 
     committed = run_aura_helper(payload, cfg, dry_run=False, text_override=helper_text)
-    if committed.get("intent") not in {"grocery", "grocery_done"}:
+    if committed.get("intent") != preflight.get("intent") or committed.get("intent") not in GROCERY_HELPER_WRITE_INTENTS:
         raise WriteExecutionError("aura_helper_domain_mismatch")
-    if not committed.get("block_id") and not committed.get("duplicate"):
+    if not isinstance(committed.get("block_id"), str) or not committed["block_id"].strip():
         raise WriteExecutionError("aura_helper_missing_external_id")
 
+    request_id = str(payload.get("request_id") or "")
+    domain = "aura.grocery_capture"
     item = str(committed.get("item") or committed.get("title") or "artículo")[:160]
-    action = "comprado" if committed.get("intent") == "grocery_done" else "faltante"
+    action = "faltante"
     return {
         "status": "committed",
         "dry_run": False,
@@ -461,22 +1603,256 @@ def execute_capture(payload: dict[str, Any], cfg: Config) -> dict[str, Any]:
     }
 
 
+def watch_safe_text(value: Any, fallback: str, limit: int = 96) -> str:
+    compact = re.sub(r"\s+", " ", str(value or "")).strip()
+    return (compact or fallback)[:limit]
+
+
+def normalize_reminder_command_text(capture_text: str) -> str:
+    folded = "".join(
+        char
+        for char in unicodedata.normalize("NFKD", capture_text or "")
+        if not unicodedata.combining(char)
+    ).lower()
+    folded = re.sub(r"[¿¡?!,;:()\[\]{}\"']", " ", folded)
+    return re.sub(r"\s+", " ", folded).strip()
+
+
+def reminder_text_is_blocked(capture_text: str) -> bool:
+    """Reject known direct non-create/cross-domain language before the helper."""
+    text = normalize_reminder_command_text(capture_text)
+    if not text or REMINDER_CREATE_WRAPPER_RE.search(text):
+        return False
+    if REMINDER_BARE_TASK_PREFIX_RE.search(text):
+        return False
+    return any(
+        pattern.search(text) is not None
+        for pattern in (
+            REMINDER_DIRECT_QUERY_RE,
+            REMINDER_DIRECT_MUTATION_RE,
+            REMINDER_DIRECT_CROSS_DOMAIN_RE,
+        )
+    )
+
+
+def should_add_reminder_route_context(capture_text: str, helper_intent: Any) -> bool:
+    """Allow only explicit task-like bare actions onto the live reminder path."""
+    normalized = normalize_reminder_command_text(capture_text)
+    return (
+        helper_intent == "note"
+        and REMINDER_BARE_TASK_PREFIX_RE.search(normalized) is not None
+        and not reminder_text_is_blocked(capture_text)
+    )
+
+
+def reject_live_reminder_without_write(planned: dict[str, Any], notes: str) -> dict[str, Any]:
+    """Return the terminal client-safe contract for a blocked live reminder."""
+    planned.update(
+        status="rejected",
+        dry_run=False,
+        write_committed=False,
+        display_message="Solo creo recordatorios nuevos · no cambié nada",
+        question=None,
+        gates_missing=[],
+    )
+    planned["plan"].update(would_write=False, notes=notes)
+    return planned
+
+
+def execute_reminder_capture(
+    payload: dict[str, Any],
+    cfg: Config,
+    planned: dict[str, Any],
+) -> dict[str, Any]:
+    # A live reminder surface can only create a new Task. Known query/mutation/
+    # finance/home language is rejected before the helper; every remaining
+    # non-create classification is rejected after side-effect-free preflight.
+    capture_text = str((payload.get("capture") or {}).get("text") or "").strip()
+    if reminder_text_is_blocked(capture_text):
+        return reject_live_reminder_without_write(
+            planned,
+            "Blocked query, mutation, finance, general-note, or home-action language before helper preflight.",
+        )
+    raw_created_at = payload.get("created_at")
+    try:
+        created_at = datetime.fromisoformat(str(raw_created_at or "").replace("Z", "+00:00"))
+        if created_at.tzinfo is None:
+            raise ValueError("missing timezone")
+    except ValueError:
+        created_at = None
+    due = parse_spanish_due(capture_text, created_at.astimezone(BOGOTA)) if created_at else None
+    if due is None or not reminder_due_is_future(due):
+        planned.update(
+            status="needs_input", dry_run=False, write_committed=False,
+            display_message="Indica una fecha y hora futuras claras en Bogotá; no creé el recordatorio",
+            question="¿Cuándo? Por ejemplo: mañana a las 2 pm o en 20 minutos (Bogotá).",
+            gates_missing=[],
+        )
+        planned["plan"].update(would_write=False, side_effects=[], notes="Missing capture timestamp, ambiguous/unsupported schedule, or due already elapsed at dispatch. Relative time remains anchored to original capture.")
+        return planned
+    helper_text = capture_text
+    preflight = run_aura_helper(payload, cfg, dry_run=True, requested_due=due)
+    helper_intent = preflight.get("intent")
+    if should_add_reminder_route_context(capture_text, helper_intent):
+        # A dedicated Recordatorio surface commonly receives a bare action such
+        # as "Comprar medicamentos". Only a positive task-verb allowlist may
+        # add route context; arbitrary notes and cross-domain commands fail closed.
+        helper_text = f"recuérdame {capture_text}"
+        preflight = run_aura_helper(payload, cfg, dry_run=True, text_override=helper_text, requested_due=due)
+        helper_intent = preflight.get("intent")
+    if helper_intent not in REMINDER_HELPER_WRITE_INTENTS:
+        # This is a terminal, correlated no-write response to a live request.
+        # Keep it distinct from an unconfigured backend's dry-run plan so the
+        # client can safely stop retrying and show the rejection to the user.
+        return reject_live_reminder_without_write(
+            planned,
+            "Aura helper preflight did not classify a reminder/task creation.",
+        )
+    helper_due = preflight.get("interpreted_due")
+    if not isinstance(helper_due, dict) or any(helper_due.get(key) != due[key] for key in ("start", "timezone")):
+        planned.update(
+            status="needs_input", dry_run=False, write_committed=False,
+            display_message="La hora del recordatorio necesita verificación; no creé la tarea",
+            question="El adaptador debe confirmar la misma fecha y hora en Bogotá.",
+            gates_missing=["verified reminder helper schedule contract"],
+        )
+        planned["plan"].update(would_write=False, side_effects=[], notes="Helper preflight did not prove the exact requested Bogotá schedule.")
+        return planned
+
+    if not reminder_due_is_future(due):
+        planned.update(status="needs_input", dry_run=False, write_committed=False, question="La hora ya pasó. ¿Para cuándo lo programo en Bogotá?", display_message="La hora ya pasó · no creé el recordatorio", gates_missing=[])
+        planned["plan"].update(would_write=False, side_effects=[], notes="Bound reminder due elapsed during read-only helper preflight; no write dispatched.")
+        return planned
+    committed = run_aura_helper(payload, cfg, dry_run=False, text_override=helper_text, requested_due=due)
+    if committed.get("intent") != helper_intent or committed.get("intent") not in REMINDER_HELPER_WRITE_INTENTS:
+        raise WriteExecutionError("aura_helper_domain_mismatch")
+    committed_due = committed.get("interpreted_due")
+    if not isinstance(committed_due, dict) or any(committed_due.get(key) != due[key] for key in ("start", "timezone")):
+        raise WriteExecutionError("aura_helper_schedule_mismatch")
+    page_id = committed.get("page_id")
+    if not isinstance(page_id, str) or not page_id.strip():
+        raise WriteExecutionError("aura_helper_missing_external_id")
+
+    title = watch_safe_text(committed.get("title") or preflight.get("title"), "Tarea")
+    if helper_intent == "task_unscheduled":
+        display_message = f"Tarea guardada ✅ · {title} (sin fecha)"
+    elif helper_intent == "errand":
+        display_message = f"Recado guardado ✅ · {title}"
+    else:
+        display_message = f"Recordatorio guardado ✅ · {title}"
+
+    calendar_synced = committed.get("calendar_synced")
+    calendar_sync_pending = committed.get("calendar_sync_pending")
+    if calendar_sync_pending is True:
+        display_message += " · Calendar pendiente"
+    elif calendar_synced is False:
+        display_message += " · Calendar no sincronizado"
+
+    external_ids = {"notion_page_id": page_id.strip()}
+    google_event_id = committed.get("google_event_id")
+    if isinstance(google_event_id, str) and google_event_id.strip():
+        external_ids["google_event_id"] = google_event_id.strip()
+
+    side_effects = ["notion.task.write"]
+    if helper_intent == "reminder":
+        side_effects.append("google_calendar.best_effort")
+    display_message += f" · {due['display']} · alertas pendientes de verificar"
+    response: dict[str, Any] = {
+        "status": "committed",
+        "dry_run": False,
+        "write_committed": True,
+        "request_id": str(payload.get("request_id") or ""),
+        "domain": "aura.reminder_capture",
+        "display_message": display_message,
+        "question": None,
+        "duplicate": bool(committed.get("duplicate", False)),
+        "interpreted_due": due,
+        "notification_verified": False,
+        "delivery_status": "pending_verification",
+        "plan": {
+            "side_effects": side_effects,
+            "would_write": True,
+            "notes": "Notion Task committed; Google Calendar is best-effort and fail-soft.",
+        },
+        "external_ids": external_ids,
+        "gates_missing": [],
+    }
+    if isinstance(calendar_synced, bool):
+        response["calendar_synced"] = calendar_synced
+    if isinstance(calendar_sync_pending, bool):
+        response["calendar_sync_pending"] = calendar_sync_pending
+    return response
+
+
+def ledger_status_for_response(payload: dict[str, Any], response: dict[str, Any]) -> str:
+    """Reserve request/hash identity while allowing a server-gate retry."""
+    plan = response.get("plan") or {}
+    live_request_waiting_for_server = (
+        client_requests_write(payload)
+        and response.get("status") == "accepted"
+        and response.get("dry_run") is True
+        and response.get("write_committed") is False
+        and isinstance(plan, dict)
+        and plan.get("would_write") is False
+    )
+    if live_request_waiting_for_server:
+        return LEDGER_WAITING_FOR_SERVER_GATE
+    return str(response.get("status", "accepted"))
+
+
+def execute_capture(payload: dict[str, Any], cfg: Config) -> dict[str, Any]:
+    planned = plan_capture(payload)
+    if planned.get("status") == "rejected":
+        if client_requests_write(payload):
+            planned.update(dry_run=False, gates_missing=[])
+            planned["plan"].update(would_write=False, side_effects=[])
+        return planned
+    route = exact_write_route(payload)
+    # Disabling new writes must never resurrect an already-issued financial
+    # preview. A correctly bound cancellation is a monotonic no-write action.
+    if route == ("megan", "expense", "megan.expense_capture") and valid_expense_cancellation_request(payload):
+        return execute_expense_capture(payload, cfg, planned)
+    if not write_is_authorized(payload, cfg):
+        return planned
+
+    if route == ("aura", "grocery", "aura.grocery_capture"):
+        return execute_grocery_capture(payload, cfg, planned)
+    if route == ("aura", "reminder", "aura.reminder_capture"):
+        return execute_reminder_capture(payload, cfg, planned)
+    if route == ("megan", "expense", "megan.expense_capture"):
+        return execute_expense_capture(payload, cfg, planned)
+    return planned
+
+
 def validate_payload(payload: Any, header_request_id: str) -> tuple[bool, int, dict[str, Any]]:
     if not isinstance(payload, dict):
         return False, HTTPStatus.BAD_REQUEST, {"status": "rejected", "error": "payload must be object"}
     if payload.get("event_type") != "mobile_capture.v1":
         return False, HTTPStatus.OK, {"status": "ignored", "event": payload.get("event_type", "unknown")}
-    if payload.get("schema_version") != 1:
+    schema_version = payload.get("schema_version")
+    if type(schema_version) is not int or schema_version != 1:
         return False, HTTPStatus.BAD_REQUEST, {"status": "rejected", "error": "unsupported schema_version"}
-    request_id = str(payload.get("request_id") or "")
-    if not request_id:
-        return False, HTTPStatus.BAD_REQUEST, {"status": "rejected", "error": "missing request_id"}
+    request_id = payload.get("request_id")
+    if not isinstance(request_id, str) or not request_id.strip():
+        return False, HTTPStatus.BAD_REQUEST, {"status": "rejected", "error": "missing or invalid request_id"}
     if not header_request_id:
         return False, HTTPStatus.BAD_REQUEST, {"status": "rejected", "error": "missing X-Request-ID"}
     if header_request_id != request_id:
         return False, HTTPStatus.CONFLICT, {"status": "rejected", "error": "X-Request-ID mismatch"}
+    for field in ("route", "capture", "context", "source", "entities"):
+        if field in payload and not isinstance(payload[field], dict):
+            return False, HTTPStatus.BAD_REQUEST, {
+                "status": "rejected",
+                "error": f"{field} must be object",
+            }
     capture = payload.get("capture") or {}
-    if not str(capture.get("text") or "").strip():
+    for field in ("text", "raw_text", "modality"):
+        if field in capture and not isinstance(capture[field], str):
+            return False, HTTPStatus.BAD_REQUEST, {
+                "status": "rejected",
+                "error": f"capture.{field} must be string",
+            }
+    if not (capture.get("text") or "").strip():
         return True, HTTPStatus.OK, plan_capture(payload)
     return True, HTTPStatus.OK, {}
 
@@ -534,41 +1910,82 @@ class MobileCaptureHandler(BaseHTTPRequestHandler):
         payload_hash = hashlib.sha256(raw).hexdigest()
         domain, _, _ = canonical_domain(payload)
         try:
-            # The service runs as one process. Serialize the ledger decision and
-            # adapter execution so same-ID requests cannot race the external
-            # helper before either idempotency record is durable.
+            # One process serializes request/operation claims, but no SQLite
+            # transaction is held across a helper or network call.  The request
+            # claim is durable first. Expenses additionally persist their own
+            # pre-POST operation claim. Aura helpers must independently honor
+            # the request-ID contract across a crash or lost acknowledgment.
             with CAPTURE_EXECUTION_LOCK:
-                # Defense-in-depth: tests or operators may remove the SQLite
-                # file while the process is running.
                 init_db(self.cfg.ledger_path)
                 with sqlite3.connect(self.cfg.ledger_path, timeout=65.0) as conn:
                     conn.execute("BEGIN IMMEDIATE")
                     row = conn.execute(
-                        "SELECT payload_hash, response_json FROM mobile_capture_ledger WHERE request_id = ?",
+                        "SELECT payload_hash, status, response_json FROM mobile_capture_ledger WHERE request_id = ?",
                         (request_id,),
                     ).fetchone()
+                    replacing_claim = False
                     if row:
-                        old_hash, old_response = row
+                        old_hash, old_status, old_response = row
                         if old_hash != payload_hash:
+                            conn.rollback()
                             json_response(self, HTTPStatus.CONFLICT, {"status": "rejected", "error": "request_id_conflict", "request_id": request_id})
                             return
-                        cached = json.loads(old_response)
-                        cached["status"] = "duplicate"
-                        cached["duplicate"] = True
-                        cached["display_message"] = cached.get("display_message") or "Ya estaba enviado ✅"
-                        json_response(self, HTTPStatus.OK, cached)
-                        return
+                        if old_status not in {LEDGER_WAITING_FOR_SERVER_GATE, "processing"}:
+                            cached = json.loads(old_response)
+                            cached = current_cached_expense_preview(conn, cached)
+                            # Keep complete previews and terminal no-write reasons
+                            # intact. Only proven writes/runs become duplicate.
+                            if (
+                                cached.get("status") != "needs_confirmation"
+                                and cached.get("write_committed") is True
+                            ):
+                                cached["status"] = "duplicate"
+                            cached["duplicate"] = True
+                            cached["display_message"] = cached.get("display_message") or "Ya estaba enviado ✅"
+                            conn.commit()
+                            json_response(self, HTTPStatus.OK, cached)
+                            return
+                        replacing_claim = True
 
-                    response = response or execute_capture(payload, self.cfg)
-                    response.setdefault("request_id", request_id)
-                    response.setdefault("domain", domain)
                     ts = now_iso()
-                    conn.execute(
-                        "INSERT INTO mobile_capture_ledger(request_id, payload_hash, domain, status, response_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (request_id, payload_hash, domain, str(response.get("status", "accepted")), json.dumps(response, ensure_ascii=False), ts, ts),
+                    if replacing_claim:
+                        conn.execute(
+                            "UPDATE mobile_capture_ledger SET domain = ?, status = 'processing', response_json = '{}', updated_at = ? WHERE request_id = ?",
+                            (domain, ts, request_id),
+                        )
+                    else:
+                        conn.execute(
+                            "INSERT INTO mobile_capture_ledger(request_id, payload_hash, domain, status, response_json, created_at, updated_at) VALUES (?, ?, ?, 'processing', '{}', ?, ?)",
+                            (request_id, payload_hash, domain, ts, ts),
+                        )
+                    conn.commit()
+
+                response = response or execute_capture(payload, self.cfg)
+                response.setdefault("request_id", request_id)
+                response.setdefault("domain", domain)
+                ts = now_iso()
+                ledger_status = ledger_status_for_response(payload, response)
+                response_json = json.dumps(response, ensure_ascii=False)
+                with sqlite3.connect(self.cfg.ledger_path, timeout=65.0) as conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    cursor = conn.execute(
+                        "UPDATE mobile_capture_ledger SET domain = ?, status = ?, response_json = ?, updated_at = ? WHERE request_id = ? AND payload_hash = ?",
+                        (domain, ledger_status, response_json, ts, request_id, payload_hash),
                     )
+                    if cursor.rowcount != 1:
+                        raise WriteExecutionError("request_claim_missing")
                     conn.commit()
         except WriteExecutionError:
+            # A processing request may safely be retried: expense
+            # operation ledgers are authoritative across uncertain
+            # outcomes and prevent a second POST. Other adapters retain their
+            # existing request-id idempotency contracts.
+            with sqlite3.connect(self.cfg.ledger_path, timeout=65.0) as conn:
+                conn.execute(
+                    "DELETE FROM mobile_capture_ledger WHERE request_id = ? AND payload_hash = ? AND status = 'processing'",
+                    (request_id, payload_hash),
+                )
+                conn.commit()
             json_response(
                 self,
                 HTTPStatus.BAD_GATEWAY,
@@ -600,6 +2017,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--write-enabled", action="store_true", default=env_flag("MOBILE_CAPTURE_WRITE_ENABLED"))
     parser.add_argument("--write-domains", default=os.getenv("MOBILE_CAPTURE_WRITE_DOMAINS", ""))
     parser.add_argument("--aura-helper", type=Path, default=Path(os.getenv("MOBILE_CAPTURE_AURA_HELPER", "/root/.hermes/scripts/apple_watch_capture.py")))
+    parser.add_argument(
+        "--expense-helper",
+        type=Path,
+        default=Path(
+            os.getenv(
+                "MOBILE_CAPTURE_EXPENSE_HELPER",
+                str(Path(__file__).resolve().parent / "scripts" / "mobile_expense_capture.py"),
+            )
+        ),
+    )
     return parser.parse_args()
 
 
@@ -615,5 +2042,6 @@ if __name__ == "__main__":
             write_enabled=args.write_enabled,
             write_domains=domains,
             aura_helper=args.aura_helper,
+            expense_helper=args.expense_helper,
         )
     )

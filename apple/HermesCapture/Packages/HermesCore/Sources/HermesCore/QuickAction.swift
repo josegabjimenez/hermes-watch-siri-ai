@@ -6,6 +6,8 @@ public enum QuickActionKind: String, CaseIterable, Identifiable, Sendable {
     case grocery
     case general
 
+    public static let mvpActions: [QuickActionKind] = [.grocery, .reminder, .expense]
+
     public var id: String { rawValue }
 
     public var title: String {
@@ -13,7 +15,7 @@ public enum QuickActionKind: String, CaseIterable, Identifiable, Sendable {
         case .expense: return "Gasto"
         case .reminder: return "Recordatorio"
         case .grocery: return "Mercado"
-        case .general: return "Captura"
+        case .general: return "Capturar"
         }
     }
 
@@ -40,6 +42,11 @@ public enum QuickActionKind: String, CaseIterable, Identifiable, Sendable {
         case .expense, .reminder, .grocery, .general:
             return "watch_dictation"
         }
+    }
+
+    /// Requests a live write from the BFF; server-side gates remain authority.
+    public var requestsLiveWrite: Bool {
+        Self.mvpActions.contains(self)
     }
 }
 
@@ -75,9 +82,14 @@ public struct CaptureFactory: Sendable {
         text: String,
         rawText: String? = nil,
         modality: String? = nil,
-        requestWrite: Bool = false
+        requestWrite: Bool = false,
+        userConfirmation: Bool = false,
+        userCancellation: Bool = false,
+        confirmationToken: String? = nil,
+        operationID: String? = nil
     ) -> CapturePayloadV1 {
-        CapturePayloadV1(
+        let requestWrite = requestWrite && kind.requestsLiveWrite
+        return CapturePayloadV1(
             requestID: makeRequestID(),
             createdAt: nowISO8601(),
             source: CaptureSource(
@@ -94,9 +106,14 @@ public struct CaptureFactory: Sendable {
                 rawText: rawText
             ),
             context: CaptureContext(
+                userConfirmation: userConfirmation,
+                userCancellation: userCancellation,
+                requiresConfirmation: kind == .expense && requestWrite && !userConfirmation && !userCancellation,
                 dryRun: !requestWrite,
                 allowWrite: requestWrite,
-                allowFireflyWrite: false
+                allowFireflyWrite: requestWrite && kind == .expense && !userCancellation,
+                confirmationToken: confirmationToken,
+                operationID: operationID
             )
         )
     }

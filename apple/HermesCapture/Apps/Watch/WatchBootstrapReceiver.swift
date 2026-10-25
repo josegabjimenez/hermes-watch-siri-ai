@@ -12,6 +12,11 @@ final class WatchBootstrapReceiver: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        if HermesAppRuntime.isSynthetic {
+            isConfigured = true
+            statusMessage = "Prueba sintética · sin servicios reales"
+            return
+        }
         refreshStoredConfigurationStatus()
 
         guard WCSession.isSupported() else {
@@ -104,6 +109,13 @@ extension WatchBootstrapReceiver: WCSessionDelegate {
         didReceiveMessage message: [String: Any],
         replyHandler: @escaping ([String: Any]) -> Void
     ) {
+        guard !HermesAppRuntime.isSynthetic else {
+            replyHandler([
+                WatchBootstrapMessage.replyOKKey: false,
+                WatchBootstrapMessage.replyErrorKey: "synthetic_runtime"
+            ])
+            return
+        }
         guard let command = message[WatchBootstrapMessage.commandKey] as? String else {
             replyHandler([
                 WatchBootstrapMessage.replyOKKey: false,

@@ -58,38 +58,50 @@ public struct CaptureEntities: Codable, Equatable, Sendable {
 
 public struct CaptureContext: Codable, Equatable, Sendable {
     public var userConfirmation: Bool
+    public var userCancellation: Bool?
     public var watchReachableToPhone: Bool
     public var shortcutCompatibility: Bool
     public var requiresConfirmation: Bool
     public var dryRun: Bool
     public var allowWrite: Bool
     public var allowFireflyWrite: Bool?
+    public var confirmationToken: String?
+    public var operationID: String?
 
     public init(
         userConfirmation: Bool = false,
+        userCancellation: Bool? = nil,
         watchReachableToPhone: Bool = false,
         shortcutCompatibility: Bool = false,
         requiresConfirmation: Bool = false,
         dryRun: Bool = true,
         allowWrite: Bool = false,
-        allowFireflyWrite: Bool? = nil
+        allowFireflyWrite: Bool? = nil,
+        confirmationToken: String? = nil,
+        operationID: String? = nil
     ) {
         self.userConfirmation = userConfirmation
+        self.userCancellation = userCancellation
         self.watchReachableToPhone = watchReachableToPhone
         self.shortcutCompatibility = shortcutCompatibility
         self.requiresConfirmation = requiresConfirmation
         self.dryRun = dryRun
         self.allowWrite = allowWrite
         self.allowFireflyWrite = allowFireflyWrite
+        self.confirmationToken = confirmationToken
+        self.operationID = operationID
     }
 
     enum CodingKeys: String, CodingKey {
         case userConfirmation = "user_confirmation"
+        case userCancellation = "user_cancellation"
         case watchReachableToPhone = "watch_reachable_to_phone"
         case shortcutCompatibility = "shortcut_compatibility"
         case requiresConfirmation = "requires_confirmation"
         case dryRun = "dry_run"
         case allowWrite = "allow_write"
         case allowFireflyWrite = "allow_firefly_write"
+        case confirmationToken = "confirmation_token"
+        case operationID = "operation_id"
     }
 }

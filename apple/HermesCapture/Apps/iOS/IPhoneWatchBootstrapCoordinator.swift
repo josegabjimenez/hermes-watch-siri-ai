@@ -11,6 +11,7 @@ final class IPhoneWatchBootstrapCoordinator: NSObject, ObservableObject {
 
     override init() {
         super.init()
+        guard !HermesAppRuntime.isSynthetic else { return }
         guard WCSession.isSupported() else {
             activationMessage = "WatchConnectivity no disponible"
             return
@@ -104,7 +105,8 @@ final class IPhoneWatchBootstrapCoordinator: NSObject, ObservableObject {
             payload.capture.text.utf8.count <= 16 * 1024,
             payload.context.dryRun,
             !payload.context.allowWrite,
-            payload.context.allowFireflyWrite != true
+            payload.context.allowFireflyWrite != true,
+            OutboxDeliveryService.isSafeRequest(payload)
         else {
             replyHandler([
                 WatchBootstrapMessage.replyOKKey: false,
@@ -136,11 +138,7 @@ final class IPhoneWatchBootstrapCoordinator: NSObject, ObservableObject {
         Task {
             do {
                 let response = try await client.submit(payload: payload, secret: secret)
-                guard
-                    response.dryRun == true,
-                    response.plan?.wouldWrite == false,
-                    response.requestID == payload.requestID
-                else {
+                guard OutboxDeliveryService.isSafe(response: response, for: payload) else {
                     replyHandler([
                         WatchBootstrapMessage.replyOKKey: false,
                         WatchBootstrapMessage.replyErrorKey: "unsafe_response"

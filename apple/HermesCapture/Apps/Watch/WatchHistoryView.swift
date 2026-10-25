@@ -36,6 +36,11 @@ struct WatchHistoryView: View {
                             .font(.footnote)
                             .lineLimit(2)
 
+                        if let message = item.lastResponse?.displayMessage ?? item.lastResponse?.question {
+                            Text(message)
+                                .font(.footnote)
+                        }
+
                         HStack {
                             Text("Intentos: \(item.attempts)")
                             if let path = item.lastDeliveryPath {
@@ -110,11 +115,13 @@ struct WatchHistoryView: View {
         case .pending:
             return "Pendiente"
         case .sending:
-            return "Enviando"
+            return "Por verificar"
         case .sent:
-            return "Enviado"
+            return "Respuesta recibida"
         case .failed:
-            return "Falló"
+            return "Por verificar"
+        case .cancelled:
+            return "Cancelado local"
         }
     }
 
@@ -137,6 +144,8 @@ struct WatchHistoryView: View {
             return "checkmark.circle.fill"
         case .failed:
             return "exclamationmark.triangle.fill"
+        case .cancelled:
+            return "xmark.circle"
         }
     }
 
@@ -150,15 +159,12 @@ struct WatchHistoryView: View {
             return .green
         case .failed:
             return .red
+        case .cancelled:
+            return .secondary
         }
     }
 
-    private var outboxURL: URL {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return root
-            .appendingPathComponent("HermesCapture", isDirectory: true)
-            .appendingPathComponent("outbox.json", isDirectory: false)
-    }
+    private var outboxURL: URL { HermesAppRuntime.outboxURL }
 }
 
 #Preview {

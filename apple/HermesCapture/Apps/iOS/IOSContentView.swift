@@ -18,6 +18,7 @@ struct IOSContentView: View {
     @State private var watchDiagnostics: WatchOutboxDiagnostics?
     @State private var localOutboxDiagnostics = LocalOutboxDiagnostics.empty
     @State private var isRetryingLocalOutbox = false
+    @AppStorage("hermes.pendingExpensePreview") private var showExpensePreview = false
 
     private let secretStore = KeychainRouteSecretStore()
     private let accent = Color(red: 187 / 255, green: 0, blue: 14 / 255)
@@ -25,6 +26,17 @@ struct IOSContentView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Acciones") {
+                    ForEach([QuickActionKind.grocery, .reminder, .expense]) { action in
+                        NavigationLink {
+                            IOSCaptureView(action: action)
+                        } label: {
+                            Label(action.title, systemImage: action.symbolName)
+                        }
+                        .accessibilityIdentifier("capture.\(action.rawValue)")
+                    }
+                }
+
                 Section("BFF por Tailscale") {
                     TextField("https://<TAILSCALE_DNS_NAME>:8650", text: $endpointInput)
                         .textInputAutocapitalization(.never)
@@ -171,9 +183,12 @@ struct IOSContentView: View {
                 }
             }
             .navigationTitle("Hermes Capture")
+            .navigationDestination(isPresented: $showExpensePreview) {
+                IOSCaptureView(action: .expense)
+            }
             .onAppear {
                 ensureDeviceIdentity()
-                endpointInput = savedBaseURL
+                endpointInput = HermesAppRuntime.isSynthetic ? "" : savedBaseURL
                 Task { @MainActor in
                     await refreshSecretStatus()
                     await refreshLocalOutbox()
@@ -184,6 +199,7 @@ struct IOSContentView: View {
 
     @MainActor
     private func saveConfiguration() async {
+        guard !HermesAppRuntime.isSynthetic else { return }
         isSaving = true
         defer { isSaving = false }
 
@@ -208,6 +224,7 @@ struct IOSContentView: View {
 
     @MainActor
     private func testConnection() async {
+        guard !HermesAppRuntime.isSynthetic else { return }
         isTesting = true
         defer { isTesting = false }
 
@@ -233,6 +250,7 @@ struct IOSContentView: View {
 
     @MainActor
     private func requestWatchDiagnostics() {
+        guard !HermesAppRuntime.isSynthetic else { return }
         isLoadingWatchDiagnostics = true
         watchBootstrap.requestDiagnostics { result in
             isLoadingWatchDiagnostics = false
@@ -248,6 +266,7 @@ struct IOSContentView: View {
 
     @MainActor
     private func sendConfigurationToWatch() async {
+        guard !HermesAppRuntime.isSynthetic else { return }
         isSendingToWatch = true
 
         do {
@@ -275,6 +294,7 @@ struct IOSContentView: View {
 
     @MainActor
     private func testHMAC() async {
+        guard !HermesAppRuntime.isSynthetic else { return }
         isTestingHMAC = true
         defer { isTestingHMAC = false }
 
@@ -342,12 +362,11 @@ struct IOSContentView: View {
         defer { isRetryingLocalOutbox = false }
 
         do {
-            guard let secret = try await secretStore.loadRouteSecret(), !secret.isEmpty else {
+            guard let credentials = try HermesAppRuntime.credentials() else {
                 secretConfigured = false
                 statusMessage = "Guarda primero el secreto HMAC"
                 return
             }
-            let baseURL = try EndpointValidator.normalizedBaseURL(from: savedBaseURL)
             let store = FileOutboxStore(fileURL: localOutboxURL)
             let items = try await store.loadDeliverable()
             guard !items.isEmpty else {
@@ -358,22 +377,25 @@ struct IOSContentView: View {
 
             let delivery = OutboxDeliveryService(
                 store: store,
-                client: WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
+                client: HermesAppRuntime.makeClient(baseURL: credentials.baseURL)
             )
             var sent = 0
             var failed = 0
+            var results: [String] = []
             for item in items {
                 do {
-                    _ = try await delivery.deliver(payload: item.payload, secret: secret)
+                    let response = try await delivery.deliver(payload: item.payload, secret: credentials.secret)
+                    if let message = response.displayMessage ?? response.question { results.append(message) }
                     sent += 1
                 } catch {
                     failed += 1
                 }
             }
             await refreshLocalOutbox()
-            statusMessage = failed == 0
-                ? "\(sent) captura(s) del iPhone enviadas · dry-run"
+            let summary = failed == 0
+                ? "\(sent) respuesta(s) recibidas · revisa el resultado de cada captura"
                 : "\(sent) enviadas · \(failed) aún pendientes"
+            statusMessage = ([summary] + results).joined(separator: "\n")
         } catch {
             await refreshLocalOutbox()
             statusMessage = error.localizedDescription
@@ -382,6 +404,10 @@ struct IOSContentView: View {
 
     @MainActor
     private func refreshSecretStatus() async {
+        guard !HermesAppRuntime.isSynthetic else {
+            secretConfigured = true
+            return
+        }
         do {
             secretConfigured = try await secretStore.loadRouteSecret() != nil
         } catch {
@@ -395,10 +421,7 @@ struct IOSContentView: View {
     }
 
     private var localOutboxURL: URL {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return root
-            .appendingPathComponent("HermesCapture", isDirectory: true)
-            .appendingPathComponent("outbox.json", isDirectory: false)
+        HermesAppRuntime.outboxURL
     }
 
     private func watchDeliveryPathTitle(_ path: String) -> String {
@@ -413,6 +436,7 @@ struct IOSContentView: View {
     }
 
     private func ensureDeviceIdentity() {
+        guard !HermesAppRuntime.isSynthetic else { return }
         if deviceID.isEmpty {
             deviceID = "iphone-\(UUID().uuidString.lowercased())"
         }
@@ -447,7 +471,7 @@ private struct LocalOutboxDiagnostics {
         sent = items.filter { $0.status == .sent }.count
         pending = items.filter { $0.status == .pending || $0.status == .sending }.count
         failed = items.filter { $0.status == .failed }.count
-        deliverable = items.filter { $0.status != .sent && $0.attempts < 5 }.count
+        deliverable = items.filter { [.pending, .failed].contains($0.status) && $0.attempts < 5 }.count
     }
 }
 

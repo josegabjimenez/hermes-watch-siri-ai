@@ -6,7 +6,7 @@ struct WatchContentView: View {
     @State private var isRetrying = false
     @State private var retryMessage: String?
 
-    private let actions: [QuickActionKind] = [.expense, .reminder, .grocery, .general]
+    private let actions = QuickActionKind.mvpActions
 
     var body: some View {
         NavigationStack {
@@ -63,14 +63,12 @@ struct WatchContentView: View {
 
     @MainActor
     private func retryPendingCaptures() async {
+        guard !isRetrying else { return }
         isRetrying = true
         defer { isRetrying = false }
 
         guard
-            let rawBaseURL = UserDefaults.standard.string(forKey: "hermes.baseURL"),
-            let baseURL = try? EndpointValidator.normalizedBaseURL(from: rawBaseURL),
-            let secret = try? KeychainRouteSecretStore().loadRouteSecretSynchronously(),
-            !secret.isEmpty
+            let credentials = try? HermesAppRuntime.credentials()
         else {
             retryMessage = "Configura desde el iPhone"
             return
@@ -86,35 +84,33 @@ struct WatchContentView: View {
 
             var sent = 0
             var failed = 0
+            var results: [String] = []
 
             for item in items {
                 do {
-                    _ = try await WatchCaptureDeliveryCoordinator.deliver(
+                    let response = try await WatchCaptureDeliveryCoordinator.deliver(
                         payload: item.payload,
-                        secret: secret,
-                        baseURL: baseURL,
+                        secret: credentials.secret,
+                        baseURL: credentials.baseURL,
                         outbox: store
                     )
+                    if let message = response.displayMessage ?? response.question { results.append(message) }
                     sent += 1
                 } catch {
                     failed += 1
                 }
             }
 
-            retryMessage = failed == 0
-                ? "\(sent) enviado(s) · dry-run"
-                : "\(sent) enviados · \(failed) pendientes"
+            let summary = failed == 0
+                ? "\(sent) respuesta(s) recibidas"
+                : "\(sent) respuestas · \(failed) pendientes"
+            retryMessage = ([summary] + results).joined(separator: "\n")
         } catch {
             retryMessage = "No se pudo leer outbox"
         }
     }
 
-    private var outboxURL: URL {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return root
-            .appendingPathComponent("HermesCapture", isDirectory: true)
-            .appendingPathComponent("outbox.json", isDirectory: false)
-    }
+    private var outboxURL: URL { HermesAppRuntime.outboxURL }
 }
 
 #Preview {

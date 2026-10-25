@@ -1,6 +1,15 @@
 // swift-tools-version: 5.9
 import PackageDescription
 
+// Apple ships CryptoKit; Linux uses the equivalent swift-crypto module.
+#if os(Linux)
+let cryptoPackages: [Package.Dependency] = [.package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")]
+let cryptoTargets: [Target.Dependency] = [.product(name: "Crypto", package: "swift-crypto")]
+#else
+let cryptoPackages: [Package.Dependency] = []
+let cryptoTargets: [Target.Dependency] = []
+#endif
+
 let package = Package(
     name: "HermesCore",
     platforms: [
@@ -11,15 +20,11 @@ let package = Package(
     products: [
         .library(name: "HermesCore", targets: ["HermesCore"])
     ],
-    dependencies: [
-        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")
-    ],
+    dependencies: cryptoPackages,
     targets: [
         .target(
             name: "HermesCore",
-            dependencies: [
-                .product(name: "Crypto", package: "swift-crypto")
-            ]
+            dependencies: cryptoTargets
         ),
         .testTarget(
             name: "HermesCoreTests",

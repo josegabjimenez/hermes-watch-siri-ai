@@ -72,12 +72,18 @@ public actor OutboxDeliveryService {
         payload: CapturePayloadV1,
         secret: String
     ) async throws -> CaptureResponseV1 {
-        try await store.markSending(
-            requestID: payload.requestID,
-            now: nowISO8601()
-        )
+        let claim = try await store.claimDelivery(payload: payload, now: nowISO8601())
+        if case .alreadySent(let response) = claim {
+            guard let response, Self.isSafe(response: response, for: payload) else {
+                throw OutboxStoreError.notDeliverable
+            }
+            return response
+        }
 
         do {
+            guard Self.isSafeRequest(payload) else {
+                throw OutboxDeliveryFailure.unsafeResponse
+            }
             #if DEBUG
             if ProcessInfo.processInfo.environment["HERMES_SIMULATE_OFFLINE"] == "1" {
                 throw URLError(.notConnectedToInternet)
@@ -87,13 +93,26 @@ public actor OutboxDeliveryService {
             guard Self.isSafe(response: response, for: payload) else {
                 throw OutboxDeliveryFailure.unsafeResponse
             }
-            try await store.markSent(
+            let stored = try await store.markSent(
                 requestID: payload.requestID,
                 now: nowISO8601(),
-                deliveryPath: .directHTTPS
+                deliveryPath: .directHTTPS,
+                response: response
             )
-            return response
+            return Self.presentationResponse(response, stored: stored)
         } catch {
+            // A business rejection may use an HTTP 4xx envelope. Only a fully
+            // correlated, proven no-write response may invalidate a preview.
+            if case WebhookClientError.unacceptableStatus(let status, let body) = error,
+               [400, 409, 410, 422].contains(status),
+               let response = try? JSONDecoder.hermesCaptureDecoder().decode(CaptureResponseV1.self, from: Data(body.utf8)),
+               payload.route == .expense, payload.context.userConfirmation,
+               ["rejected", "needs_input"].contains(response.status),
+               Self.isSafe(response: response, for: payload) {
+                try await store.markSent(requestID: payload.requestID, now: nowISO8601(),
+                                         deliveryPath: .directHTTPS, response: response)
+                return response
+            }
             let failure = Self.classify(error)
             try? await store.markFailed(
                 requestID: payload.requestID,
@@ -102,6 +121,21 @@ public actor OutboxDeliveryService {
             )
             throw failure
         }
+    }
+
+    private static func presentationResponse(_ response: CaptureResponseV1, stored: OutboxItem?) -> CaptureResponseV1 {
+        guard response.status == "needs_confirmation", stored?.confirmationInvalidatedAt != nil else { return response }
+        // Cancellation/terminal rejection won while the preview was in flight.
+        // Never hand its token back to a view after the durable invalidation.
+        var inactive = response
+        inactive.status = "rejected"
+        inactive.confirmationToken = nil
+        inactive.confirmation = nil
+        inactive.question = nil
+        inactive.writeCommitted = false
+        inactive.displayMessage = "Vista previa inactiva · consulta el estado del gasto"
+        inactive.plan = CaptureResponsePlan(sideEffects: [], wouldWrite: false)
+        return inactive
     }
 
     private static func classify(_ error: Error) -> OutboxDeliveryFailure {
@@ -125,10 +159,49 @@ public actor OutboxDeliveryService {
         return .unknown
     }
 
-    private static func isSafe(
+    public static func isSafeRequest(_ payload: CapturePayloadV1) -> Bool {
+        let isCancellation = payload.context.userCancellation == true
+        let hasConfirmationToken = !(payload.context.confirmationToken?.isEmpty ?? true)
+        if payload.context.dryRun {
+            return !payload.context.allowWrite
+                && payload.context.allowFireflyWrite != true
+                && !payload.context.userConfirmation
+                && !isCancellation
+                && payload.context.confirmationToken == nil
+                && payload.context.operationID == nil
+        }
+        guard payload.context.allowWrite else { return false }
+        switch payload.route {
+        case .expense:
+            if isCancellation {
+                return !payload.context.userConfirmation
+                    && !payload.context.requiresConfirmation
+                    && payload.context.allowFireflyWrite == false
+                    && payload.context.confirmationToken == nil
+                    && isValidExpenseOperationID(payload.context.operationID)
+            }
+            guard payload.context.allowFireflyWrite == true else { return false }
+            if payload.context.userConfirmation {
+                return hasConfirmationToken && isValidExpenseOperationID(payload.context.operationID)
+            }
+            return payload.context.confirmationToken == nil
+                && payload.context.operationID == nil
+        case .reminder, .grocery:
+            return payload.context.allowFireflyWrite != true
+                && !payload.context.userConfirmation
+                && !isCancellation
+                && payload.context.confirmationToken == nil
+                && payload.context.operationID == nil
+        default:
+            return false
+        }
+    }
+
+    public static func isSafe(
         response: CaptureResponseV1,
         for payload: CapturePayloadV1
     ) -> Bool {
+        guard Self.isSafeRequest(payload) else { return false }
         guard
             response.requestID == payload.requestID,
             response.domain == payload.route.domain.rawValue
@@ -140,9 +213,72 @@ public actor OutboxDeliveryService {
                 && response.plan?.wouldWrite == false
                 && response.writeCommitted != true
         }
-        return payload.context.allowWrite
-            && response.dryRun == false
+        guard
+            payload.context.allowWrite,
+            response.dryRun == false
+        else {
+            return false
+        }
+
+        let committedStatuses = ["committed", "duplicate"]
+        let committedWrite = committedStatuses.contains(response.status)
             && response.plan?.wouldWrite == true
             && response.writeCommitted == true
+        let terminalNoWriteStatuses = ["rejected", "needs_input", "needs_confirmation", "duplicate"]
+        let terminalNoWrite = terminalNoWriteStatuses.contains(response.status)
+            && response.plan?.wouldWrite == false
+            && response.writeCommitted != true
+
+        switch payload.route {
+        case .expense:
+            if payload.context.userCancellation == true {
+                return ["cancelled", "duplicate"].contains(response.status)
+                    && response.plan?.wouldWrite == false
+                    && response.writeCommitted == false
+                    && response.operationID == payload.context.operationID
+                    && isValidExpenseOperationID(response.operationID)
+                    && response.confirmationToken == nil
+                    && response.confirmation == nil
+            }
+            guard payload.context.allowFireflyWrite == true else { return false }
+            if committedWrite {
+                return payload.context.userConfirmation
+                    && response.operationID == payload.context.operationID
+                    && isValidExpenseOperationID(response.operationID)
+            }
+            if response.status == "needs_confirmation" {
+                let correlatedOperation = !payload.context.userConfirmation
+                    || response.operationID == payload.context.operationID
+                return terminalNoWrite
+                    && correlatedOperation
+                    && isValidExpenseOperationID(response.operationID)
+                    && !(response.confirmationToken?.isEmpty ?? true)
+                    && response.confirmation.map { summary in
+                        summary.amountCOP > 0 && !summary.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            && !summary.sourceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            && !summary.categoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            && !summary.budgetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    } == true
+            }
+            if payload.context.userConfirmation {
+                return terminalNoWrite
+                    && response.operationID == payload.context.operationID
+                    && isValidExpenseOperationID(response.operationID)
+            }
+            return terminalNoWrite
+                && (response.operationID == nil || isValidExpenseOperationID(response.operationID))
+        case .reminder, .grocery:
+            guard payload.context.allowFireflyWrite != true else { return false }
+            return committedWrite || terminalNoWrite
+        default:
+            return false
+        }
+    }
+
+    private static func isValidExpenseOperationID(_ value: String?) -> Bool {
+        guard let value, value.hasPrefix("exp_"), value.count == 36 else { return false }
+        return value.dropFirst(4).allSatisfy { character in
+            ("0"..."9").contains(character) || ("a"..."f").contains(character)
+        }
     }
 }

@@ -25,8 +25,8 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture
       CODE_SIGN_STYLE: Automatic
-      MARKETING_VERSION: 0.3.3
-      CURRENT_PROJECT_VERSION: 6
+      MARKETING_VERSION: 0.3.4
+      CURRENT_PROJECT_VERSION: 7
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
@@ -45,13 +45,23 @@ targets:
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: dev.josegabjimenez.HermesCapture.watchkitapp
       CODE_SIGN_STYLE: Automatic
-      MARKETING_VERSION: 0.3.3
-      CURRENT_PROJECT_VERSION: 6
+      MARKETING_VERSION: 0.3.4
+      CURRENT_PROJECT_VERSION: 7
       GENERATE_INFOPLIST_FILE: YES
       INFOPLIST_KEY_CFBundleDisplayName: Hermes
       INFOPLIST_KEY_WKApplication: YES
       INFOPLIST_KEY_WKCompanionAppBundleIdentifier: dev.josegabjimenez.HermesCapture
       INFOPLIST_KEY_WKWatchOnly: NO
+  HermesCaptureUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: UITests
+    dependencies:
+      - target: HermesCaptureiOS
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
   HermesCoreTests:
     type: bundle.unit-test
     platform: iOS
@@ -60,8 +70,20 @@ targets:
       - path: Packages/HermesCore/Tests/HermesCoreTests
     dependencies:
       - package: HermesCore
+      - target: HermesCoreTestHost
     settings:
       GENERATE_INFOPLIST_FILE: YES
+      TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HermesCoreTestHost.app/HermesCoreTestHost"
+      BUNDLE_LOADER: "$(TEST_HOST)"
+  HermesCoreTestHost:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Tests/Host
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_UILaunchScreen_Generation: YES
 schemes:
   HermesCaptureiOS:
     build:
@@ -70,6 +92,7 @@ schemes:
     test:
       targets:
         - HermesCoreTests
+        - HermesCaptureUITests
   HermesCaptureWatch:
     build:
       targets:

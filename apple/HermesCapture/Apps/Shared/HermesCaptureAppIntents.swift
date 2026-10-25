@@ -4,6 +4,7 @@ import HermesCore
 
 enum HermesAppIntentCaptureRunner {
     static func capture(kind: QuickActionKind, text: String) async -> String {
+        guard kind != .general else { return "La captura general está fuera de este MVP" }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             return "No recibí ningún texto"
@@ -28,10 +29,10 @@ enum HermesAppIntentCaptureRunner {
             text: trimmed,
             rawText: text,
             modality: "app_intent",
-            requestWrite: kind == .grocery
+            requestWrite: kind.requestsLiveWrite
         )
 
-        let outbox = FileOutboxStore(fileURL: outboxURL)
+        let outbox = FileOutboxStore(fileURL: HermesAppRuntime.outboxURL)
         do {
             _ = try await outbox.enqueue(payload, now: payload.createdAt)
         } catch {
@@ -39,10 +40,7 @@ enum HermesAppIntentCaptureRunner {
         }
 
         guard
-            let rawBaseURL = defaults.string(forKey: "hermes.baseURL"),
-            let baseURL = try? EndpointValidator.normalizedBaseURL(from: rawBaseURL),
-            let secret = try? KeychainRouteSecretStore().loadRouteSecretSynchronously(),
-            !secret.isEmpty
+            let credentials = try? HermesAppRuntime.credentials()
         else {
             return "Guardado. Configura Hermes desde el iPhone"
         }
@@ -52,18 +50,22 @@ enum HermesAppIntentCaptureRunner {
             #if os(watchOS)
             response = try await WatchCaptureDeliveryCoordinator.deliver(
                 payload: payload,
-                secret: secret,
-                baseURL: baseURL,
+                secret: credentials.secret,
+                baseURL: credentials.baseURL,
                 outbox: outbox
             )
             #else
             let delivery = OutboxDeliveryService(
                 store: outbox,
-                client: WebhookClient(endpoint: EndpointValidator.captureURL(from: baseURL))
+                client: HermesAppRuntime.makeClient(baseURL: credentials.baseURL)
             )
-            response = try await delivery.deliver(payload: payload, secret: secret)
+            response = try await delivery.deliver(payload: payload, secret: credentials.secret)
             #endif
-            return response.displayMessage ?? "Enviado"
+            if kind == .expense, response.status == "needs_confirmation" {
+                defaults.set(true, forKey: "hermes.pendingExpensePreview")
+                return "Gasto preparado. Abre Gasto en Hermes, revisa la cuenta y el importe y toca Registrar para confirmarlo"
+            }
+            return response.displayMessage ?? response.question ?? "Respuesta recibida · revisa el resultado en Hermes"
         } catch let failure as OutboxDeliveryFailure {
             return failure.localizedDescription
         } catch {
@@ -72,6 +74,7 @@ enum HermesAppIntentCaptureRunner {
     }
 
     private static func stableDeviceID(defaults: UserDefaults) -> String {
+        if HermesAppRuntime.isSynthetic { return "synthetic-ui-device" }
         if let existing = defaults.string(forKey: "hermes.pseudonymousDeviceID"), !existing.isEmpty {
             return existing
         }
@@ -79,13 +82,6 @@ enum HermesAppIntentCaptureRunner {
         let generated = "\(prefix)-\(UUID().uuidString.lowercased())"
         defaults.set(generated, forKey: "hermes.pseudonymousDeviceID")
         return generated
-    }
-
-    private static var outboxURL: URL {
-        let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return root
-            .appendingPathComponent("HermesCapture", isDirectory: true)
-            .appendingPathComponent("outbox.json", isDirectory: false)
     }
 
     private static var platform: String {
@@ -107,8 +103,8 @@ enum HermesAppIntentCaptureRunner {
 
 struct CaptureExpenseIntent: AppIntent {
     static var title: LocalizedStringResource = "Registrar gasto en Hermes"
-    static var description = IntentDescription("Guarda y valida un gasto con Megan en modo dry-run.")
-    static var openAppWhenRun = false
+    static var description = IntentDescription("Prepara un gasto COP para revisarlo y confirmarlo en Hermes.")
+    static var openAppWhenRun = true
     static var authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalDeviceAuthentication
 
     @Parameter(
@@ -125,7 +121,7 @@ struct CaptureExpenseIntent: AppIntent {
 
 struct CaptureReminderIntent: AppIntent {
     static var title: LocalizedStringResource = "Crear recordatorio en Hermes"
-    static var description = IntentDescription("Guarda y valida un recordatorio con Aura en modo dry-run.")
+    static var description = IntentDescription("Crea un recordatorio con fecha y hora de Bogotá y muestra el estado del aviso.")
     static var openAppWhenRun = false
     static var authenticationPolicy: IntentAuthenticationPolicy = .requiresLocalDeviceAuthentication
 
@@ -205,15 +201,6 @@ struct HermesCaptureAppShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Agregar al mercado",
             systemImageName: "cart"
-        )
-        AppShortcut(
-            intent: GeneralHermesCaptureIntent(),
-            phrases: [
-                "Capturar con \(.applicationName)",
-                "Nueva captura en \(.applicationName)"
-            ],
-            shortTitle: "Capturar",
-            systemImageName: "sparkles"
         )
     }
 

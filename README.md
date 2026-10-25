@@ -2,34 +2,24 @@
 
 Watch-first iOS/watchOS capture system for routing quick Apple Watch and Siri captures into Hermes Agents.
 
-The project starts with a documented backend staging layer and API contract, then moves toward a native iOS + watchOS app that prioritizes Apple Watch capture speed.
+The personal MVP contains three actions on iPhone and Apple Watch: **Mercado**, **Recordatorio**, and **Gasto**. It reuses the synchronous BFF, signed requests, and durable outbox.
+
+See [the current MVP contract and device handoff](docs/HERMES_PERSONAL_MVP.md) and [current verification](docs/verification/2026-10-25/REPORT.md). Older status/review documents below are historical evidence and do not certify this candidate.
 
 ## Current scope
 
-- Native iOS + watchOS app roadmap.
-- Watch-first UX and Apple-platform constraints.
-- `mobile_capture.v1` API contract.
-- Synchronous BFF staging endpoint for Watch-friendly responses.
-- HMAC V2 signing and idempotency ledger design.
-- Server-owned domain gates for write-enabled actions.
-- GPT-5.6-sol Max Thinking review gates for important architecture/security/product decisions.
-- Initial XcodeGen + Swift Package scaffold under `apple/HermesCapture`.
-- Watch system text-entry/dictation flow with local file-backed outbox.
-- iPhone HTTPS endpoint configuration, health check, and route secret in Keychain.
-- User-initiated WatchConnectivity bootstrap into Watch Keychain.
-- End-to-end Watch outbox delivery to the synchronous BFF.
-- Local Watch history plus sanitized aggregate diagnostics on iPhone.
-- Authenticated iOS/watchOS App Intents and Spanish App Shortcuts.
-- Transient Watch→iPhone capture fallback that never transfers the HMAC secret.
-- Shared privacy manifest and automatic-signing readiness for physical-device QA.
-- Delivery-path observability (`Directo` vs `vía iPhone`) without exposing capture content.
-- Physical paired-device dry-run QA passed for direct HTTPS, iPhone fallback, outage persistence, and same-item retry.
-- Physical iPhone/Watch Siri capture and archive privacy-manifest gates passed.
-- Allowlisted Aura Mercado writes with a reversible Notion canary; every other domain remains dry-run.
+- Add groceries to the existing official list; confirm success only after a committed helper result.
+- Create a reminder with an explicit supported Bogotá schedule. Task creation and verified notification delivery are separate results.
+- Preview one simple COP expense against existing accounts/categories/budgets; record only after an explicit confirmation bound to that frozen operation.
+- Authenticated Spanish Siri/Shortcuts, Watch dictation, and an iPhone review form.
+- Durable offline outboxes, cancellation tombstones, serialized delivery claims, and correlated terminal preview invalidation.
+- HTTPS/HMAC V2, Keychain configuration, server-owned per-domain gates, and persistent idempotency ledgers.
+- Watch live writes use direct HTTPS. The iPhone relay remains restricted to dry-run traffic.
+- General capture/Argos dispatch, favorites, account/catalog creation, transfers, cards, installments, income, and mutations of existing reminders are outside this MVP.
 
 ## Review policy
 
-New reviews use GPT-5.6-sol with Max Thinking. Historical Fable 5 documents remain in the repository as decision records, but Fable 5 is no longer used as the reviewer.
+The current delivery uses independent GPT-6.1 Sol Ultra review for consequential confirmation and cancellation boundaries. Older reviews remain as decision records.
 
 ## What “BFF” means here
 
@@ -129,23 +119,24 @@ Replace `<TAILSCALE_DNS_NAME>` locally with your actual tailnet DNS name. Do not
 
 ## Security status
 
-Current status is **write-enabled only for Aura Mercado** after a reversible create/read/idempotency/archive/read canary. The exact server-side allowlist is:
+All writes are disabled by default. This candidate implements only these exact server-owned route triples:
 
 ```text
-agent:  aura
-intent: grocery
-domain: aura.grocery_capture
+aura  / grocery  / aura.grocery_capture
+aura  / reminder / aura.reminder_capture
+megan / expense  / megan.expense_capture
 ```
 
-Client `allow_write` fields are never authorization. The server must also enable the exact triple above. Megan expenses, reminders, general capture, Home Assistant, Calendar, and unknown domains remain dry-run/no-write.
+Client `allow_write` fields are never authority. Enabling a domain requires private deployment configuration and a reviewed domain adapter. General capture and unknown domains cannot gain write authority from environment flags.
 
 Still required before broader production writes:
 
-- durable deployment behind HTTPS;
-- production-grade ledger retention/backup;
-- archive privacy-report and App Store privacy reconciliation;
-- physical Apple Watch smoke QA for candidate 0.3.3 (6);
-- separate domain gates and reversible canaries for every additional write domain.
+- review/merge and separately authorized backend rollout;
+- a reviewed Aura helper implementing the frozen date, official-list, create-only, and idempotency contracts;
+- durable HTTPS service and ledger/helper-state retention, backup, and compatible restore;
+- authorized signing and physical iPhone/Watch/Siri checks for this exact candidate;
+- actual reminder alarm readback and observed notification delivery on Jose's devices;
+- separately authorized live-domain checks. Synthetic financial tests never use real records.
 
 ## License
 
