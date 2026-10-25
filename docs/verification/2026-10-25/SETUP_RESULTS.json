@@ -24,16 +24,19 @@
     "watch_direct_install": "Blocked by Bluetooth tunnel: initially CoreDevice4000/RemotePairing1035; final attempt CoreDevice4/RemotePairing1007, L2CAP open-channel failure",
     "watch_normal_pair_refresh": "Command succeeded; connection remained rejected",
     "watch_install_after_unlocked_nearby_confirmation": "Final attempt failed before tunnel creation: CoreDevice4/RemotePairing1007 and L2CAP open-channel failure",
-    "watch_companion_install_and_launch": "Awaiting physical readback; not independently verified",
+    "watch_companion_install_and_launch": "Human reports attempt starts then Install button returns; installation/launch not verified, device installer reason unknown",
     "watch_installed_version": "Unverified",
     "xcode_gui_selection": "Unverified; native Xcode and Finder UI calls timed out after human confirmed unlock",
     "uninstall_unpair_or_erase": "Not performed",
     "capture_retry_confirmation_or_live_write": "Not invoked",
     "observed_backend_health": "HTTP 200, aura.grocery_capture only; code identity unverified",
     "reminder_alert_delivery": "Unverified",
-    "live_reminder_and_expense_domains": "Not enabled in observed health"
+    "live_reminder_and_expense_domains": "Not enabled in observed health",
+    "watch_embedded_bundle_additional_audit": "No mismatch found in companion/version metadata, physical watchOS architectures/minOS, profile allowance of signed entitlements, nested signatures or dependencies",
+    "bounded_mac_install_log_query": "54 matching entries, known Mac tunnel errors only; no companion installer rejection identified",
+    "iphone_usb_connection": "No iPhone detected in current USB metadata query"
   },
-  "pending_human_action": "In iPhone Watch app, verify/install Hermes companion and open it on Watch without submitting a capture; report actual result. Xcode connection troubleshooting remains if companion install fails.",
+  "pending_human_action": "Connect existing paired iPhone to Mac mini via USB data cable, unlock and handle Trust prompt; keep Watch unlocked nearby. Then retry bounded install/diagnostics.",
   "log_sha256": {
     "unsigned-config-build.log": "6200e2cc66462273e64c9cf39b9d95df54cb6df99924fa0210761dc3520f626f",
     "signed-resume-build-standard-identity.log": "02bc5e376e4edb5a3db12c010be747079b2e1407eedc094f72f607ecba833062",
@@ -41,7 +44,8 @@
     "installed-iphone-app.json": "761b82c7256e524d18b6cb40b77b82db8c98daaff011b41a987912f3c3aca23d",
     "launch-iphone-after-trust.log": "5297b192d6f3c834583d302157b323d24b09278c955b1974f933efe3a898e4ac",
     "iphone-hermes-process-after-trust.json": "06e7e6fb4cdb5d5cf16c38ed09f316a9ff9759f618688a6e807e9da5302ec53a",
-    "install-watch-final-nearby.log": "709f72a8216e3b2a6f4d636772c5bcc1a2e3d0d1fcba0ec9edfc195e26e891ed"
+    "install-watch-final-nearby.log": "709f72a8216e3b2a6f4d636772c5bcc1a2e3d0d1fcba0ec9edfc195e26e891ed",
+    "filtered-install-diagnostics.json": "32c014f3cc99eaff203dce5b9f9700229bda65fad3703e571aa0b6b88acfa44c"
   },
   "signed_build_source_commit": "be43c532332a667ed6b20e44dce2ac8bac181616",
   "implementation_sources_changed_during_resumed_setup": false,
