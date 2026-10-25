@@ -34,9 +34,12 @@
     "live_reminder_and_expense_domains": "Not enabled in observed health",
     "watch_embedded_bundle_additional_audit": "No mismatch found in companion/version metadata, physical watchOS architectures/minOS, profile allowance of signed entitlements, nested signatures or dependencies",
     "bounded_mac_install_log_query": "54 matching entries, known Mac tunnel errors only; no companion installer rejection identified",
-    "iphone_usb_connection": "No iPhone detected in current USB metadata query"
+    "iphone_usb_connection": "Confirmed after Jose connected cable: CoreDevice wired/paired/connected with DDI services; IOKit detects iPhone",
+    "usb_inventory_correction": "macOS supports SPUSBHostDataType; prior SPUSBDataType empty result cannot establish absence",
+    "watch_install_with_usb_companion": "Failed before transfer, CoreDevice4000/RemotePairing1035 Bluetooth connection rejection",
+    "phone_installer_log_collection": "Filtered attached-device log collection requires administrator authentication; noninteractive sudo unavailable. Private bounded helper awaits human run."
   },
-  "pending_human_action": "Connect existing paired iPhone to Mac mini via USB data cable, unlock and handle Trust prompt; keep Watch unlocked nearby. Then retry bounded install/diagnostics.",
+  "pending_human_action": "Run the prepared private installer-log helper in Terminal and enter Mac administrator password locally; report Done or its error. Keep iPhone connected.",
   "log_sha256": {
     "unsigned-config-build.log": "6200e2cc66462273e64c9cf39b9d95df54cb6df99924fa0210761dc3520f626f",
     "signed-resume-build-standard-identity.log": "02bc5e376e4edb5a3db12c010be747079b2e1407eedc094f72f607ecba833062",
@@ -45,7 +48,11 @@
     "launch-iphone-after-trust.log": "5297b192d6f3c834583d302157b323d24b09278c955b1974f933efe3a898e4ac",
     "iphone-hermes-process-after-trust.json": "06e7e6fb4cdb5d5cf16c38ed09f316a9ff9759f618688a6e807e9da5302ec53a",
     "install-watch-final-nearby.log": "709f72a8216e3b2a6f4d636772c5bcc1a2e3d0d1fcba0ec9edfc195e26e891ed",
-    "filtered-install-diagnostics.json": "32c014f3cc99eaff203dce5b9f9700229bda65fad3703e571aa0b6b88acfa44c"
+    "filtered-install-diagnostics.json": "32c014f3cc99eaff203dce5b9f9700229bda65fad3703e571aa0b6b88acfa44c",
+    "usb-confirmation.json": "da1ec907514e084c66ecf92158cfd42b33664753e7fc8f45778da8f1c40b810d",
+    "install-watch-usb.log": "b847119ebd899be8f844a831efce69b37c88835bac96223d9435d61530bc8413",
+    "iphone-install-log-collection.log": "74b0dd27cc11b0cb8f21b8139d61e4ba9be8f0ee5cc3bb2fddc876a2202c01ec",
+    "iphone-install-log-collection-privileged.log": "9b3a3b7a78f239c4473bb193476b1a860c91f1c2b4fab9c7639eceea414a60fb"
   },
   "signed_build_source_commit": "be43c532332a667ed6b20e44dce2ac8bac181616",
   "implementation_sources_changed_during_resumed_setup": false,
