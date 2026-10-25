@@ -2,7 +2,7 @@
 
 Delivery state: **ready for code review; physical/live acceptance pending**. No backend was deployed, no live domain was exercised, and no financial records or production credentials were used.
 
-The later request to complete Xcode/device setup is tracked in [the device setup record](../../XCODE_DEVICE_SETUP.md). The original signing result below is historical: the Team has since been resolved locally; current profiles/account authentication are the remaining signing blockers.
+The later request to complete Xcode/device setup is tracked in [the device setup record](../../XCODE_DEVICE_SETUP.md) and [setup results](SETUP_RESULTS.json). The original signing result below is historical: a signed iOS/embedded-Watch build now passes with renewed profiles and the existing certificate, and iPhone installation/launch are verified. Direct Watch installation is blocked by a Bluetooth pairing-connection rejection; physical Watch readback and visible Xcode selection remain pending.
 
 ## Candidate identity
 
@@ -51,7 +51,7 @@ Independent Sol Ultra review reproduced account/currency/time-ambiguity/replay/r
 
 ## Privacy and publication
 
-Both unsigned Release products contain the shared privacy manifest (`NSPrivacyTracking=false`, UserDefaults reason `CA92.1`). Product bundle IDs, companion relationship and `0.3.4 (7)` are preserved. Device/Release binaries exclude the Debug/simulator synthetic host, fake endpoint and fake secret. Signed-archive privacy inspection remains pending.
+Both unsigned Release products contain the shared privacy manifest (`NSPrivacyTracking=false`, UserDefaults reason `CA92.1`). Product bundle IDs, companion relationship and `0.3.4 (7)` are preserved. Device/Release binaries exclude the Debug/simulator synthetic host, fake endpoint and fake secret. The resumed setup also verified privacy manifests in both signed Debug device app bundles; a separate signed archive was not created.
 
 Synthetic mode uses isolated per-case outboxes and an intercepting URLProtocol; retries, bootstrap and configuration paths cannot send to actual services or save real credentials in that mode. Real Keychain/bootstrap authentication and server-owned gates are retained.
 

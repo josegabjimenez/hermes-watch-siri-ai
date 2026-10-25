@@ -4,7 +4,7 @@ Jose requested Xcode setup so that he only needs to test Hermes on his Watch. Th
 
 ## Configured locally
 
-The generated project is `apple/HermesCapture/HermesCapture.xcodeproj`. Both product targets now reference `Config/Signing.xcconfig`, which optionally includes the ignored `Signing.xcconfig.local` in that directory. The local file supplies the existing personal development Team and existing signing identity; neither is committed. Automatic signing remains enabled, the bundle IDs and companion relationship are unchanged, and regenerating the Xcode project preserves this setup.
+The generated project is `apple/HermesCapture/HermesCapture.xcodeproj`. Both product targets reference `Config/Signing.xcconfig`, which optionally includes the ignored `Signing.xcconfig.local` in that directory. The local file supplies the existing personal development Team and the standard `Apple Development` identity selector. Automatic signing remains enabled, the bundle IDs and companion relationship are unchanged, and regenerating the Xcode project preserves this setup.
 
 The Team was resolved from the recovered project and independently matched to the current Apple Development certificate. There is no Team choice left for Jose to make. The existing certificate is valid through August 19, 2027. No new identity, certificate or device registration was created.
 
@@ -16,24 +16,28 @@ The Team was resolved from the recovered project and independently matched to th
 | iPhone | Existing paired physical phone, iOS 27.2; Developer Mode enabled; available as an iOS build destination over the local network. |
 | Apple Watch | Existing paired physical Watch, watchOS 27.0; Developer Mode enabled; available as a watchOS build destination. |
 | Schemes | `HermesCaptureiOS` builds the companion with embedded Watch; `HermesCaptureWatch` targets the physical Watch. Both generated launch actions point to the corresponding app. |
-| Local configuration check | Both schemes inherit the resolved Team and automatic signing, with no manual provisioning-profile override. An unsigned iOS device build, including its embedded Watch app, passed after this configuration change. |
-| Existing installation | The phone still has Hermes 0.3.3 (6). Its configuration was inspected read-only; its outbox and Keychain were not accessed. No app was uninstalled or replaced. |
-| Signed build | Blocked by missing current provisioning profiles. All recovered matching profiles expired September 4, 2026; they match the existing Team, certificate and already paired devices. |
-| Profile refresh | Xcode reports invalid saved account credentials / missing username; its account list is empty. No account token or password was extracted, entered or changed. |
-| Install | Not attempted with an unsigned/expired build. The currently installed apps and data are preserved. |
-| Xcode GUI | The Mac is locked and native UI access failed. Opening the project and selecting the physical Watch in Xcode cannot be claimed yet. No further UI retries are needed until it is unlocked. |
+| Local configuration check | Both schemes inherit the resolved Team and automatic signing, with no manual provisioning-profile override. A certificate fingerprint pin was rejected by Xcode under Automatic signing; restoring its standard `Apple Development` selector resolved the conflict. |
+| Signed build | **Passed**, iOS with embedded Watch, from source commit `be43c532332a667ed6b20e44dce2ac8bac181616`. No implementation source changed during this resumed setup. |
+| Signature/profile verification | Both bundles pass strict/deep codesign verification, reuse the original existing certificate, match the unchanged Team and bundle IDs, and contain their corresponding paired device in the renewed profile. Both contain the privacy manifest with tracking disabled. |
+| Profile refresh | **Resolved** after Jose signed into the existing account. Automatic provisioning renewed profiles using the original certificate; no new identity/certificate was created. Both profiles expire November 1, 2026, at approximately 15:05 America/Bogota. |
+| iPhone install | **Succeeded** as an in-place update. CoreDevice readback confirms Hermes **0.3.4 (7)**. No uninstall or app-data deletion was performed. |
+| iPhone launch | Initially denied by iOS with a signature/entitlement/developer-trust error. After Jose confirmed trusting the existing developer profile, normal launch succeeded and a running Hermes process was read back. No capture/retry/confirmation action was invoked. |
+| Watch install | Direct installation remains blocked by its Bluetooth tunnel. Earlier attempts returned CoreDevice 4000 / RemotePairing 1035, “The device rejected the Bluetooth connection attempt.” After destination refresh, a successful normal pairing-refresh command, and confirmation that both devices were unlocked nearby, the final attempt returned CoreDevice 4 / RemotePairing 1007: Bluetooth invalidated before tunnel creation, with an L2CAP open-channel failure. No device was unpaired or erased. Installation through the companion phone is awaiting physical readback. |
+| Xcode GUI | Jose confirmed the Mac is unlocked. Native Xcode/Finder UI access still timed out; opening the project and selecting the physical Watch in the visible GUI remain **unverified**. No shell UI automation or private UI-state editing was used. |
 
 Personal account, Team, certificate/profile and device identifiers, endpoint metadata, raw logs, and resume commands remain in ignored local storage. Public evidence intentionally omits those identifiers.
 
 The sanitized [setup results](verification/2026-10-25/SETUP_RESULTS.json) record these checks separately from the original implementation test run.
 
-## The required human action
+## Remaining Watch check
 
-Unlock the Mac mini and sign back into the existing Apple account in **Xcode → Settings → Accounts**, completing any Apple 2FA yourself. The account must be the one associated with the already resolved personal Team. Creating a new identity or selecting a new Team is not the next step.
+Apple login, profile renewal, iPhone installation and iPhone developer trust are resolved. They do not need repeating.
 
-After that, the executor can renew the normal development profiles for the unchanged app IDs using the existing identity, build a signed candidate, verify its embedded profiles/signatures, and install it onto the existing pair without deleting app data. The intended GUI run selection is **HermesCaptureWatch → the paired physical Watch**. Selection and installation must be read back before claiming the setup is finished.
+The installed iPhone app includes the signed Watch app. The next physical check is the iPhone's **Watch → My Watch → Apps** list: if Hermes appears under Available Apps, tap Install, then open Hermes on the Watch without submitting a capture. Apple's [companion-app installation instructions](https://support.apple.com/en-ie/109023) describe this path. Whether the Watch actually installs/opens this candidate must be reported before claiming completion; the Mac's connection failure alone cannot establish that.
 
-The private `.private/setup/RESUME.json` records the resolved destinations, build/install commands and project path for resumption. It contains no secret values and is not part of the repository. No generic signing checklist or new project is needed.
+If the companion installation also fails, inspect the existing Watch connection in **Xcode → Window → Devices and Simulators** with the paired phone connected. The intended run selection is **HermesCaptureWatch → the paired physical Watch**. Do not erase/unpair either device as a troubleshooting shortcut. Apple's [device-run instructions](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html) cover the paired-phone connection and Watch run destination.
+
+The private `.private/setup/RESUME.json` records the resolved destinations, build/install commands and project path for resumption. Raw device/signing logs remain private. The development profiles require renewal after their actual expiry.
 
 ## App installation versus usable live actions
 
