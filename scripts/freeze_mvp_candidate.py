@@ -10,12 +10,12 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "docs/verification/2026-10-25/SOURCE_MANIFEST.json"
+MANIFEST = ROOT / "docs/verification/2026-10-28/SOURCE_MANIFEST.json"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / ".private/hermes-personal-mvp.tar.gz")
+    parser.add_argument("--output", type=Path, default=ROOT / ".private/personal-watch-app-mvp.tar.gz")
     args = parser.parse_args()
     manifest = json.loads(MANIFEST.read_text())
     for source in manifest["implementation_sources"]:
@@ -27,7 +27,7 @@ def main() -> None:
         raise SystemExit("Commit the reviewed changes before freezing a candidate")
     commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
     archive = subprocess.check_output(
-        ["git", "archive", "--format=tar", "--prefix=hermes-personal-mvp/", commit], cwd=ROOT
+        ["git", "archive", "--format=tar", "--prefix=personal-watch-app/", commit], cwd=ROOT
     )
     compressed = gzip.compress(archive, mtime=0)
     args.output.parent.mkdir(parents=True, exist_ok=True)

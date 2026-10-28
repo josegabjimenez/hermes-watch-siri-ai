@@ -1,8 +1,10 @@
 # Public-safe example; copy and adapt outside the repository.
+# Legacy unit filename, service account, paths and state directory deliberately
+# match the existing backend. The app rebrand does not migrate live services.
 # The referenced environment and secret files must be readable only by the
 # service account (or by root before systemd drops privileges).
 [Unit]
-Description=Hermes mobile capture BFF with durable side-effect claims
+Description=Personal Watch App mobile capture BFF with durable side-effect claims
 After=network-online.target tailscaled.service
 Wants=network-online.target
 

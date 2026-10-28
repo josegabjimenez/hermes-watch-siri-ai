@@ -1,4 +1,4 @@
-# Minimal backend rollout proposal
+# Personal Watch App — minimal backend rollout proposal
 
 This is a reviewable proposal, not an executed deployment. The Xcode/device setup request does not authorize production domain activation or a financial canary.
 

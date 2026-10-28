@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hermes mobile-capture v1 synchronous BFF.
+"""Personal Watch App mobile-capture v1 synchronous BFF.
 
 A small synchronous server for Watch/iPhone capture:
 - verifies HMAC V2: HMAC_SHA256(secret, f"{timestamp}.{raw_body}")

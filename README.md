@@ -1,10 +1,10 @@
-# Hermes Watch Siri AI
+# Personal Watch App
 
-Watch-first iOS/watchOS capture system for routing quick Apple Watch and Siri captures into Hermes Agents.
+Personal Watch App is a Watch-first iOS/watchOS capture app for quick Apple Watch and Siri requests to the existing private backend.
 
 The personal MVP contains three actions on iPhone and Apple Watch: **Mercado**, **Recordatorio**, and **Gasto**. It reuses the synchronous BFF, signed requests, and durable outbox.
 
-See [the current MVP contract and device handoff](docs/HERMES_PERSONAL_MVP.md) and [current verification](docs/verification/2026-10-25/REPORT.md). Older status/review documents below are historical evidence and do not certify this candidate.
+See [the current MVP contract and device handoff](docs/PERSONAL_WATCH_APP_MVP.md), [rename verification](docs/verification/2026-10-28/REPORT.md), and [earlier MVP verification](docs/verification/2026-10-25/REPORT.md). Older status/review documents below are historical evidence and do not certify this candidate.
 
 ## Current scope
 
@@ -25,22 +25,28 @@ The current delivery uses independent GPT-6.1 Sol Ultra review for consequential
 
 **BFF = Backend for Frontend.** In this project it is a small synchronous backend tailored to the iPhone/Apple Watch frontend. It verifies requests, enforces idempotency, returns short Watch-friendly JSON, and keeps sensitive agent/tool writes behind server-side gates.
 
-The generic Hermes webhook adapter remains useful for async ingestion/logging, but the Watch MVP should target the BFF because the Watch UI needs immediate feedback.
+The existing Hermes server's generic webhook adapter remains an async ingestion/logging integration. Personal Watch App targets the synchronous BFF because its Watch UI needs immediate feedback. The server integration keeps its established name and protocol identifiers.
 
 ## GitHub
 
 Public repository:
 
 ```text
-https://github.com/josegabjimenez/hermes-watch-siri-ai
+https://github.com/josegabjimenez/personal-watch-app
 ```
 
 Default branch: `main`.
 
+## Naming and compatibility
+
+The current product and repository name is **Personal Watch App**. Existing installation and backend identities remain unchanged: the `dev.josegabjimenez.HermesCapture` bundle-ID family, Keychain/storage namespaces, `com.jose.hermes.mobile_capture` schema, `HermesCapture` wire client value, `X-Hermes-*` headers and `hermes-watch:` external expense IDs are legacy compatibility identifiers. Existing app Swift module and App Intent identities also remain for saved Shortcuts. Changing these identifiers would require a separately reviewed migration of app data, signing or request identity.
+
+Historical reports keep the names and commands of the artifacts actually reviewed. The local checkout folder also keeps its existing path until the Codex project mapping can be updated safely.
+
 ## Repository layout
 
 ```text
-apple/HermesCapture/                    # XcodeGen + Swift Package scaffold
+apple/PersonalWatchApp/                 # XcodeGen + shared PersonalWatchCore package
 
 backend/
   mobile_capture_staging_server.py       # synchronous BFF with server-side domain gates

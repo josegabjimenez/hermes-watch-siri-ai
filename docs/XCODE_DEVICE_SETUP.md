@@ -1,6 +1,10 @@
-# Physical-device setup · 25 October 2026
+# Personal Watch App — physical-device setup record
 
-Jose requested Xcode setup so that he only needs to test Hermes on his Watch. This continues PR #1 and the existing candidate; it does not authorize merging or deploying the backend.
+> **Historical device evidence · October 25, 2026.** The product was renamed Personal Watch App on October 28. The signed/installed candidate described below used the former Hermes display name and original project/scheme names; those are preserved as evidence of the actual artifacts. The renamed build has not been installed, and Watch installation remains unresolved. No new device action is required by the rename while Jose is away from the Mac.
+
+Current source setup uses `apple/PersonalWatchApp/PersonalWatchApp.xcodeproj`, the `PersonalWatchAppiOS` and `PersonalWatchAppWatch` schemes, and the `PersonalWatchCore` package. The unchanged bundle IDs and signing identity preserve compatibility; current setup commands are in [the Apple app README](../apple/PersonalWatchApp/README.md).
+
+Jose requested Xcode setup so that he only needs to test the app on his Watch. This record continues PR #1 and the earlier candidate; it does not authorize merging or deploying the backend.
 
 ## Configured locally
 
@@ -32,17 +36,17 @@ Personal account, Team, certificate/profile and device identifiers, endpoint met
 
 The sanitized [setup results](verification/2026-10-25/SETUP_RESULTS.json) record these checks separately from the original implementation test run.
 
-## Remaining Watch check
+## Recorded remaining Watch check
 
 Apple login, profile renewal, iPhone installation and iPhone developer trust are resolved. They do not need repeating.
 
 The installed iPhone app includes the signed Watch app. Jose tried Apple's [companion-app installation path](https://support.apple.com/en-ie/109023); the attempt returned to Install without completing. Repeating that action alone is not the next diagnostic step.
 
-The paired phone is now connected over USB; that did not resolve the Watch tunnel failure. The remaining diagnostic is the companion installer rejection on the phone. Apple's installed `log collect` CLI supports an attached-device selector, time/size bounds and a predicate, but macOS requires root for attached-device collection; existing noninteractive administrator authentication is unavailable.
+On October 25 the paired phone's USB connection was verified; that did not resolve the Watch tunnel failure. The outstanding diagnostic is the companion installer rejection on the phone. Apple's installed `log collect` CLI supports an attached-device selector, time/size bounds and a predicate, but macOS requires root for attached-device collection; existing noninteractive administrator authentication was unavailable. This is a recorded blocker, not a new request to unlock or operate the devices during the rename.
 
 An ignored private helper is prepared and syntax-checked at `.private/setup/collect-hermes-installer-error.sh`. It requires Jose to run it in Terminal and enter the Mac password locally. It selects only the existing phone, the last 30 minutes (5 MB cap), and installer-service messages mentioning the Hermes bundle. Its output remains private. No administrator password is requested in chat, and no persistent permission change is proposed. Collection has not succeeded yet, so no installer cause is claimed.
 
-Alternatively inspect the existing phone in Console, filter Hermes installer messages and reproduce once. For Xcode, the intended run selection remains **HermesCaptureWatch → the paired physical Watch** in **Window → Devices and Simulators**. Apple's [device-run instructions](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html) cover the paired-phone connection and Watch destination.
+The recorded alternative was to inspect the existing phone in Console, filter installer messages for its legacy bundle ID and reproduce once. The October 25 Xcode run selection was **HermesCaptureWatch → the paired physical Watch**; its renamed source equivalent is **PersonalWatchAppWatch → the paired physical Watch** in **Window → Devices and Simulators**. Apple's [device-run instructions](https://help.apple.com/xcode/mac/current/en.lproj/dev5a825a1ca.html) cover the paired-phone connection and Watch destination.
 
 The additional audit followed Apple's [installation troubleshooting guidance](https://developer.apple.com/library/archive/technotes/tn2319/) by inspecting the Watch app embedded inside the installed phone build. Its Debug dylib layout is [documented by Apple](https://developer.apple.com/documentation/xcode/understanding-build-product-layout-changes). A bounded recent Mac developer-log query found the known tunnel errors but no device installer rejection for the companion attempt. Broad device diagnostics were not collected.
 

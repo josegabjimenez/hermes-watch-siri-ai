@@ -1,5 +1,7 @@
 # Three-action MVP verification · 25 October 2026
 
+> Historical verification for the pre-rename candidate. The current product is Personal Watch App; see the [October 28 rename verification](../2026-10-28/REPORT.md). Artifact names, hashes and the earlier screenshot below retain their original meaning.
+
 Delivery state: **ready for code review; physical/live acceptance pending**. No backend was deployed, no live domain was exercised, and no financial records or production credentials were used.
 
 The later request to complete Xcode/device setup is tracked in [the device setup record](../../XCODE_DEVICE_SETUP.md) and [setup results](SETUP_RESULTS.json). The original signing result below is historical: a signed iOS/embedded-Watch build now passes with renewed profiles and the existing certificate, and iPhone installation/launch are verified. Direct Watch installation is blocked by a Bluetooth pairing-connection rejection; physical Watch readback and visible Xcode selection remain pending.
