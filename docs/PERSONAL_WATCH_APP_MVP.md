@@ -2,7 +2,7 @@
 
 The product was renamed **Personal Watch App** on October 28, 2026. The three-action scope established October 25 is unchanged. Existing bundle IDs, storage keys, protocol values and external operation IDs retain their earlier identifiers for compatibility.
 
-Source task: [existing W-R02](https://app.notion.com/p/3ddfcdfcb7b48142bce3fcdd9916c330). Jose approved implementation for his own iPhone and Apple Watch. This delivery prepares code and a reviewable PR; it does not authorize merge, production deployment, financial transactions, or acceptance of device gates.
+Source task: existing W-R02 (planning record kept private). Jose approved implementation for his own iPhone and Apple Watch. This delivery prepares code and a reviewable PR; it does not authorize merge, production deployment, financial transactions, or acceptance of device gates.
 
 ## Three actions
 

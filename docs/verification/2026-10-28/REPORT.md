@@ -45,6 +45,8 @@ These names are compatibility/history, not active app branding. No wire, Keychai
 
 Private logs, `.xcresult`, generated projects and local signing configuration remain ignored. [RESULTS.json](RESULTS.json) records sanitized results and log hashes; [SOURCE_MANIFEST.json](SOURCE_MANIFEST.json) pins implementation files. No tests were added solely to match wording.
 
+Public documentation and the PR use the source task's short label; its private planning URL is omitted. Existing Git history is preserved.
+
 ## Device and live readiness
 
 This renamed candidate has **not** been installed on the phone or Watch. The historical phone installation/launch and unresolved Watch installation remain exactly as recorded in [the device setup history](../../XCODE_DEVICE_SETUP.md). No unlock, administrator-log or installation request was issued during the rename. Future private resume commands now point to the renamed project/products and explicitly require a rebuild before installation; old signed products are retained as historical artifacts.
