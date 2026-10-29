@@ -1272,31 +1272,61 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
         ]:
             self.assertFalse(srv.write_is_authorized(payload, cfg))
 
-    def test_reminder_route_mismatch_never_invokes_helper(self):
-        payload = self.reminder_payload(live=True)
-        payload["route"]["domain"] = "aura.grocery_capture"
-        cfg = self.write_config("aura.reminder_capture", "aura.grocery_capture")
+    def test_reminder_authority_gates_never_invoke_ai_todoist_or_legacy_helper(self):
+        cfg = replace(
+            self.write_config("aura.reminder_capture"),
+            reminder_openai_key_file=Path("synthetic-openai-key"),
+            reminder_todoist_token_file=Path("synthetic-todoist-token"),
+        )
+        cases = []
+        for label, changes in (
+            ("dry_run", {"dry_run": True}),
+            ("no_allow_write", {"allow_write": False}),
+            ("financial_capability", {"allow_firefly_write": True}),
+            ("financial_confirmation", {"user_confirmation": True}),
+            ("cancellation", {"user_cancellation": True}),
+            ("invalid_cancellation_type", {"user_cancellation": "false"}),
+            ("confirmation_token", {"confirmation_token": "synthetic-token"}),
+            ("operation_id", {"operation_id": "exp_" + "1" * 32}),
+        ):
+            payload = self.reminder_payload(live=True)
+            payload["context"].update(changes)
+            cases.append((label, payload, cfg))
+        for field, value in (
+            ("agent", "Aura"), ("agent", "megan"),
+            ("intent", "reminder_capture"), ("intent", "grocery"),
+            ("domain", "aura.grocery_capture"), ("domain", None),
+        ):
+            payload = self.reminder_payload(live=True)
+            payload["route"][field] = value
+            cases.append((f"route_{field}_{value}", payload, cfg))
+        cases.extend([
+            ("server_disabled", self.reminder_payload(live=True), replace(cfg, write_enabled=False)),
+            ("domain_not_allowlisted", self.reminder_payload(live=True), replace(cfg, write_domains=frozenset({"aura.grocery_capture"}))),
+        ])
+        with mock.patch.object(srv.reminder_capture.reminder_ai, "interpret") as ai, \
+             mock.patch.object(srv.reminder_capture, "TodoistGateway") as todoist, \
+             mock.patch.object(srv, "run_aura_helper") as legacy:
+            for label, payload, config in cases:
+                with self.subTest(case=label):
+                    self.assertFalse(srv.write_is_authorized(payload, config))
+                    response = srv.execute_capture(payload, config)
+                    self.assertTrue(response["dry_run"])
+                    self.assertFalse(response["write_committed"])
+            ai.assert_not_called()
+            todoist.assert_not_called()
+            legacy.assert_not_called()
 
-        with mock.patch.object(srv, "run_aura_helper") as helper:
-            response = srv.execute_capture(payload, cfg)
-
-        self.assertEqual(response["status"], "accepted")
-        self.assertTrue(response["dry_run"])
-        self.assertFalse(response["write_committed"])
-        helper.assert_not_called()
-
-    def test_aura_helper_dry_run_preflight_uses_side_effect_free_flag(self):
-        payload = self.reminder_payload(live=True)
-        cfg = self.write_config("aura.reminder_capture")
+    def test_grocery_helper_dry_run_preflight_uses_side_effect_free_flag(self):
+        payload = self.grocery_payload(live=True)
+        cfg = self.write_config("aura.grocery_capture")
         completed = mock.Mock(
             returncode=0,
-            stdout=json.dumps({"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Llamar a mamá"}),
+            stdout=json.dumps({"ok": True, "intent": "grocery", "title": "Leche"}),
         )
-
         with mock.patch.object(srv.subprocess, "run", return_value=completed) as run:
             result = srv.run_aura_helper(payload, cfg, dry_run=True)
-
-        self.assertEqual(result["intent"], "reminder")
+        self.assertEqual(result["intent"], "grocery")
         command = run.call_args.args[0]
         self.assertIn("--dry-run", command)
         self.assertIn("--no-notify", command)
@@ -1343,215 +1373,60 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
         self.assertEqual(response["gates_missing"], [])
         self.assertEqual(helper.call_count, 1)
 
-    def test_reminder_commits_only_after_allowed_helper_preflight(self):
+    def test_reminder_missing_server_credentials_stays_dry_run_without_fallback(self):
         payload = self.reminder_payload(live=True)
         cfg = self.write_config("aura.reminder_capture")
-        helper_results = [
-            {"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Llamar a mamá"},
-            {
-                "ok": True,
-                "intent": "reminder",
-                "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"},
-                "title": "Llamar a mamá",
-                "page_id": "notion-page",
-                "google_event_id": "google-event",
-                "calendar_synced": True,
-                "calendar_sync_pending": False,
-            },
-        ]
-        with mock.patch.object(srv, "run_aura_helper", side_effect=helper_results) as helper:
-            response = srv.execute_capture(payload, cfg)
-
-        self.assertEqual(response["status"], "committed")
-        self.assertFalse(response["dry_run"])
-        self.assertTrue(response["write_committed"])
-        self.assertTrue(response["plan"]["would_write"])
-        self.assertEqual(response["request_id"], payload["request_id"])
-        self.assertEqual(response["domain"], "aura.reminder_capture")
-        self.assertEqual(response["external_ids"]["notion_page_id"], "notion-page")
-        self.assertEqual(response["external_ids"]["google_event_id"], "google-event")
-        self.assertTrue(response["calendar_synced"])
-        self.assertFalse(response["calendar_sync_pending"])
-        self.assertEqual(helper.call_count, 2)
-        self.assertTrue(helper.call_args_list[0].kwargs["dry_run"])
-        self.assertFalse(helper.call_args_list[1].kwargs["dry_run"])
-
-    def test_reminder_accepts_only_create_intents_from_helper(self):
-        cfg = self.write_config("aura.reminder_capture")
-        for helper_intent in ["reminder"]:
-            with self.subTest(helper_intent=helper_intent):
-                helper_results = [
-                    {"ok": True, "intent": helper_intent, "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Tarea segura"},
-                    {"ok": True, "intent": helper_intent, "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Tarea segura", "page_id": f"page-{helper_intent}"},
-                ]
-                with mock.patch.object(srv, "run_aura_helper", side_effect=helper_results) as helper:
-                    response = srv.execute_capture(
-                        self.reminder_payload(live=True, request_id=f"request-{helper_intent}"),
-                        cfg,
-                    )
-                self.assertEqual(response["status"], "committed")
-                self.assertTrue(response["write_committed"])
-                self.assertEqual(helper.call_count, 2)
-
-    def test_reminder_bare_action_gets_route_context_before_write(self):
-        payload = self.reminder_payload(live=True, text="Comprar medicamentos mañana a las dos pm")
-        cfg = self.write_config("aura.reminder_capture")
-        helper_results = [
-            {"ok": True, "intent": "note", "title": "Medicamentos"},
-            {"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Medicamentos"},
-            {"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Medicamentos", "page_id": "page-bare-action"},
-        ]
-        with mock.patch.object(srv, "run_aura_helper", side_effect=helper_results) as helper:
-            response = srv.execute_capture(payload, cfg)
-
-        self.assertEqual(response["status"], "committed")
-        self.assertEqual(response["external_ids"]["notion_page_id"], "page-bare-action")
-        self.assertEqual(helper.call_count, 3)
-        self.assertTrue(helper.call_args_list[0].kwargs["dry_run"])
-        self.assertIsNone(helper.call_args_list[0].kwargs.get("text_override"))
-        self.assertTrue(helper.call_args_list[1].kwargs["dry_run"])
-        self.assertEqual(helper.call_args_list[1].kwargs["text_override"], "recuérdame Comprar medicamentos mañana a las dos pm")
-        self.assertFalse(helper.call_args_list[2].kwargs["dry_run"])
-        self.assertEqual(helper.call_args_list[2].kwargs["text_override"], "recuérdame Comprar medicamentos mañana a las dos pm")
-
-    def test_reminder_route_context_uses_positive_task_allowlist(self):
-        allowed = [
-            "Comprar medicamentos",
-            "Llamar a mamá",
-            "Revisar el contrato",
-            "Tomar la medicina",
-            "Presentar la idea al equipo",
-            "Pagar la factura mañana",
-        ]
-        blocked = [
-            "sube la temperatura a 22 grados",
-            "prende la luz de la sala",
-            "abre las cortinas",
-            "anota una idea para el portafolio",
-            "45 mil en mercado",
-            "qué recordatorios tengo",
-            "cancela el recordatorio de llamar a mamá",
-            "marca como hecho comprar medicamentos",
-            "cambia el recordatorio para mañana",
-            "¿Qué recordatorios tengo?",
-            "Tengo recordatorios pendientes",
-            "Hay tareas pendientes",
-            "Cuántos recordatorios tengo",
-            "Muéstrame mis tareas",
-            "Marca la tarea de comprar medicamentos como hecha",
-            "Puedes cancelar el recordatorio de mamá",
-            "Registra una compra de $45.000",
-            "Pon el aire acondicionado a 22 grados",
-        ]
-        safe_create_texts = allowed + [
-            "recuérdame llamar a mamá mañana",
-            "recuérdame cancelar la cita mañana",
-            "Recuérdame que compre leche mañana",
-            "Recuérdame que pague la factura mañana",
-            "Recuérdame presentar la idea mañana",
-        ]
-        for text in safe_create_texts:
-            with self.subTest(text=text, expected="safe_create_text"):
-                self.assertFalse(srv.reminder_text_is_blocked(text))
-        for text in allowed:
-            with self.subTest(text=text, expected="allowed_route_context"):
-                self.assertTrue(srv.should_add_reminder_route_context(text, "note"))
-        for text in blocked:
-            with self.subTest(text=text, expected="blocked"):
-                self.assertTrue(srv.reminder_text_is_blocked(text))
-                self.assertFalse(srv.should_add_reminder_route_context(text, "note"))
-
-        cfg = self.write_config("aura.reminder_capture")
-        for index, text in enumerate(blocked):
-            with self.subTest(text=text, path="execute_capture"):
-                with mock.patch.object(
-                    srv,
-                    "run_aura_helper",
-                    return_value={"ok": True, "intent": "note", "title": "No escribir"},
-                ) as helper:
-                    response = srv.execute_capture(
-                        self.reminder_payload(live=True, text=text, request_id=f"cross-domain-{index}"),
-                        cfg,
-                    )
-                self.assertEqual(response["status"], "rejected")
-                self.assertFalse(response["dry_run"])
+        for openai_file, todoist_file in (
+            (None, None), (Path("synthetic-openai-key"), None),
+            (None, Path("synthetic-todoist-token")),
+        ):
+            with self.subTest(openai_file=openai_file, todoist_file=todoist_file), \
+                 mock.patch.object(srv.reminder_capture.reminder_ai, "interpret") as ai, \
+                 mock.patch.object(srv.reminder_capture, "TodoistGateway") as todoist, \
+                 mock.patch.object(srv, "run_aura_helper") as legacy:
+                config = replace(cfg, reminder_openai_key_file=openai_file,
+                                 reminder_todoist_token_file=todoist_file)
+                response = srv.execute_capture(payload, config)
+                self.assertEqual(response["status"], "accepted")
+                self.assertTrue(response["dry_run"])
                 self.assertFalse(response["write_committed"])
                 self.assertFalse(response["plan"]["would_write"])
-                self.assertEqual(response["gates_missing"], [])
-                helper.assert_not_called()
+                self.assertEqual(response["plan"]["side_effects"], ["todoist.task.plan_only"])
+                self.assertTrue(response["gates_missing"])
+                self.assertEqual(srv.ledger_status_for_response(payload, response), srv.LEDGER_WAITING_FOR_SERVER_GATE)
+                ai.assert_not_called()
+                todoist.assert_not_called()
+                legacy.assert_not_called()
 
-    def test_reminder_rejects_non_create_helper_intents_before_side_effects(self):
-        cfg = self.write_config("aura.reminder_capture")
-        blocked_intents = [
-            "task_unscheduled",
-            "errand",
-            "list_tasks",
-            "complete",
-            "complete_all",
-            "cancel",
-            "reschedule",
-            "note",
-            "grocery",
-            "grocery_done",
-            "expense",
-        ]
-        for helper_intent in blocked_intents:
-            with self.subTest(helper_intent=helper_intent):
-                with mock.patch.object(
-                    srv,
-                    "run_aura_helper",
-                    return_value={"ok": True, "intent": helper_intent, "title": "No escribir"},
-                ) as helper:
-                    response = srv.execute_capture(
-                        self.reminder_payload(live=True, request_id=f"blocked-{helper_intent}"),
-                        cfg,
-                    )
-                self.assertEqual(response["status"], "rejected")
-                self.assertFalse(response["dry_run"])
-                self.assertFalse(response["write_committed"])
-                self.assertFalse(response["plan"]["would_write"])
-                self.assertEqual(response["gates_missing"], [])
-                self.assertEqual(helper.call_count, 1)
-                self.assertTrue(helper.call_args.kwargs["dry_run"])
-
-    def test_reminder_calendar_failure_is_fail_soft_after_notion_commit(self):
-        payload = self.reminder_payload(live=True)
-        cfg = self.write_config("aura.reminder_capture")
-        helper_results = [
-            {"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Llamar a mamá"},
-            {
-                "ok": True,
-                "intent": "reminder",
-                "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"},
-                "title": "Llamar a mamá",
-                "page_id": "notion-page",
-                "google_event_id": None,
-                "calendar_synced": False,
-                "calendar_sync_pending": True,
-                "calendar_error": "invalid_grant secret diagnostic that must not reach Watch",
-            },
-        ]
-        with mock.patch.object(srv, "run_aura_helper", side_effect=helper_results):
+    def test_reminder_forwards_original_natural_capture_to_durable_adapter(self):
+        payload = self.reminder_payload(
+            live=True, text="La vacuna del perro el viernes a las nueve de la mañana",
+        )
+        cfg = replace(
+            self.write_config("aura.reminder_capture"),
+            reminder_openai_key_file=Path("synthetic-openai-key"),
+            reminder_todoist_token_file=Path("synthetic-todoist-token"),
+        )
+        expected = {"status": "needs_input", "dry_run": False, "write_committed": False}
+        with mock.patch.object(srv.reminder_capture, "execute", return_value=expected) as adapter, \
+             mock.patch.object(srv, "run_aura_helper") as legacy:
             response = srv.execute_capture(payload, cfg)
+        self.assertIs(response, expected)
+        adapter.assert_called_once_with(payload, cfg, now=srv.reminder_dispatch_now)
+        self.assertEqual(adapter.call_args.args[0]["capture"]["text"], payload["capture"]["text"])
+        legacy.assert_not_called()
 
-        self.assertEqual(response["status"], "committed")
-        self.assertTrue(response["write_committed"])
-        self.assertFalse(response["calendar_synced"])
-        self.assertTrue(response["calendar_sync_pending"])
-        self.assertEqual(response["external_ids"], {"notion_page_id": "notion-page"})
-        self.assertIn("Calendar pendiente", response["display_message"])
-        self.assertNotIn("invalid_grant", json.dumps(response))
-
-    def test_reminder_commit_requires_notion_page_id(self):
-        payload = self.reminder_payload(live=True)
-        cfg = self.write_config("aura.reminder_capture")
-        helper_results = [
-            {"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Llamar a mamá"},
-            {"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Llamar a mamá", "calendar_synced": True},
-        ]
-        with mock.patch.object(srv, "run_aura_helper", side_effect=helper_results):
-            with self.assertRaisesRegex(srv.WriteExecutionError, "missing_external_id"):
-                srv.execute_capture(payload, cfg)
+    def test_reminder_adapter_failure_never_falls_back_to_legacy_write(self):
+        cfg = replace(
+            self.write_config("aura.reminder_capture"),
+            reminder_openai_key_file=Path("synthetic-openai-key"),
+            reminder_todoist_token_file=Path("synthetic-todoist-token"),
+        )
+        with mock.patch.object(srv.reminder_capture, "execute", side_effect=srv.reminder_capture.ReminderRetryable("synthetic-failure")), \
+             mock.patch.object(srv, "run_aura_helper") as legacy:
+            with self.assertRaisesRegex(srv.WriteExecutionError, "reminder_pending_retry"):
+                srv.execute_capture(self.reminder_payload(live=True), cfg)
+        legacy.assert_not_called()
 
     def test_validate_wrong_event_is_ignored(self):
         valid, status, response = srv.validate_payload({"event_type": "other", "schema_version": 1}, "")
@@ -1647,6 +1522,8 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
                 write_enabled=True,
                 write_domains=frozenset({"aura.grocery_capture", "aura.reminder_capture"}),
                 aura_helper=Path(__file__),
+                reminder_openai_key_file=Path("synthetic-openai-key"),
+                reminder_todoist_token_file=Path("synthetic-todoist-token"),
             )
             srv.init_db(ledger_path)
             server = srv.ThreadingHTTPServer((disabled_cfg.host, 0), QuietHandler)
@@ -1679,22 +1556,17 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
             changed_payload = json.loads(json.dumps(payload))
             changed_payload["capture"]["text"] = "recuérdame enviar un correo mañana"
             changed_raw = json.dumps(changed_payload, separators=(",", ":")).encode("utf-8")
-            helper_results = [
-                {"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Llamar a mamá"},
-                {
-                    "ok": True,
-                    "intent": "reminder",
-                    "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"},
-                    "title": "Llamar a mamá",
-                    "page_id": "gate-rollout-page",
-                    "calendar_synced": True,
-                    "calendar_sync_pending": False,
-                },
-            ]
+            adapter_result = {
+                "status": "committed", "dry_run": False, "write_committed": True,
+                "request_id": payload["request_id"], "domain": "aura.reminder_capture",
+                "display_message": "Guardado en Todoist · alertas pendientes de verificar",
+                "external_ids": {"todoist_task_id": "synthetic-task-id"},
+                "plan": {"would_write": True, "side_effects": ["todoist.task.write"]},
+            }
             try:
-                with mock.patch.object(srv, "run_aura_helper", side_effect=helper_results) as helper:
+                with mock.patch.object(srv.reminder_capture, "execute", return_value=adapter_result) as adapter:
                     first_status, first = send()
-                    self.assertEqual(helper.call_count, 0)
+                    self.assertEqual(adapter.call_count, 0)
                     try:
                         send(changed_raw)
                     except error.HTTPError as http_error:
@@ -1702,7 +1574,7 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
                         conflict = json.loads(http_error.read())
                     else:
                         self.fail("Changed payload reused a waiting request ID without conflict")
-                    self.assertEqual(helper.call_count, 0)
+                    self.assertEqual(adapter.call_count, 0)
                     server.cfg = enabled_cfg  # type: ignore[attr-defined]
                     committed_status, committed = send()
                     duplicate_status, duplicate = send()
@@ -1723,7 +1595,7 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 200)
         self.assertEqual(duplicate["status"], "duplicate")
         self.assertTrue(duplicate["write_committed"])
-        self.assertEqual(helper.call_count, 2)
+        self.assertEqual(adapter.call_count, 1)
 
     def test_live_expense_replay_uses_cached_ledger_without_second_firefly_call(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1761,87 +1633,6 @@ class MobileCaptureStagingServerTests(unittest.TestCase):
         self.assertEqual(responses[1][1]["external_ids"]["firefly_journal_ids"], ["journal-9001"])
         self.assertEqual(helper.call_count, 3)
         self.assertEqual([call.kwargs["mode"] for call in helper.call_args_list], ["plan", "reconcile", "commit"])
-
-    def test_live_reminder_replay_uses_cached_ledger_without_second_write(self):
-        secret = b"live-reminder-ledger-secret"
-        payload = self.reminder_payload(
-            live=True,
-            request_id="live-reminder-ledger-request",
-        )
-        raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-
-        class QuietHandler(srv.MobileCaptureHandler):
-            def log_message(self, fmt, *args):
-                pass
-
-        with tempfile.TemporaryDirectory() as directory:
-            cfg = srv.Config(
-                secret=secret,
-                ledger_path=Path(directory) / "ledger.sqlite",
-                host="127.0.0.1",
-                port=0,
-                write_enabled=True,
-                write_domains=frozenset({"aura.reminder_capture"}),
-                aura_helper=Path(__file__),
-            )
-            srv.init_db(cfg.ledger_path)
-            server = srv.ThreadingHTTPServer((cfg.host, 0), QuietHandler)
-            server.cfg = cfg  # type: ignore[attr-defined]
-            server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-            server_thread.start()
-            endpoint = f"http://127.0.0.1:{server.server_address[1]}/webhooks/mobile-capture-v1"
-
-            def send():
-                timestamp = str(int(time.time()))
-                signature = hmac.new(
-                    secret,
-                    timestamp.encode("utf-8") + b"." + raw,
-                    hashlib.sha256,
-                ).hexdigest()
-                req = request.Request(
-                    endpoint,
-                    data=raw,
-                    method="POST",
-                    headers={
-                        "Content-Type": "application/json",
-                        "X-Webhook-Timestamp": timestamp,
-                        "X-Webhook-Signature-V2": signature,
-                        "X-Request-ID": payload["request_id"],
-                    },
-                )
-                with request.urlopen(req, timeout=5) as http_response:
-                    return http_response.status, json.loads(http_response.read())
-
-            helper_results = [
-                {"ok": True, "intent": "reminder", "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"}, "title": "Llamar a mamá"},
-                {
-                    "ok": True,
-                    "intent": "reminder",
-                    "interpreted_due": {"start": "2026-08-31T14:00:00-05:00", "timezone": "America/Bogota"},
-                    "title": "Llamar a mamá",
-                    "page_id": "notion-page",
-                    "calendar_synced": True,
-                    "calendar_sync_pending": False,
-                },
-            ]
-            try:
-                with mock.patch.object(srv, "run_aura_helper", side_effect=helper_results) as helper:
-                    first_status, first = send()
-                    duplicate_status, duplicate = send()
-            finally:
-                server.shutdown()
-                server_thread.join()
-                server.server_close()
-
-        self.assertEqual(first_status, 200)
-        self.assertEqual(first["status"], "committed")
-        self.assertTrue(first["write_committed"])
-        self.assertEqual(duplicate_status, 200)
-        self.assertEqual(duplicate["status"], "duplicate")
-        self.assertTrue(duplicate["duplicate"])
-        self.assertFalse(duplicate["dry_run"])
-        self.assertTrue(duplicate["write_committed"])
-        self.assertEqual(helper.call_count, 2)
 
     def test_concurrent_duplicate_requests_return_cached_result(self):
         secret = b"concurrent-test-secret"

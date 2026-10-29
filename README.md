@@ -4,12 +4,12 @@ Personal Watch App is a Watch-first iOS/watchOS capture app for quick Apple Watc
 
 The personal MVP contains three actions on iPhone and Apple Watch: **Mercado**, **Recordatorio**, and **Gasto**. It reuses the synchronous BFF, signed requests, and durable outbox.
 
-See [the current MVP contract and device handoff](docs/PERSONAL_WATCH_APP_MVP.md), [rename verification](docs/verification/2026-10-28/REPORT.md), and [earlier MVP verification](docs/verification/2026-10-25/REPORT.md). Older status/review documents below are historical evidence and do not certify this candidate.
+See [AI/Todoist reminder configuration and verification](docs/REMINDER_AI_TODOIST.md), [the current MVP contract and device handoff](docs/PERSONAL_WATCH_APP_MVP.md), [rename verification](docs/verification/2026-10-28/REPORT.md), and [earlier MVP verification](docs/verification/2026-10-25/REPORT.md). Older status/review documents below are historical evidence and do not certify this candidate.
 
 ## Current scope
 
 - Add groceries to the existing official list; confirm success only after a committed helper result.
-- Create a reminder with an explicit supported Bogotá schedule. Task creation and verified notification delivery are separate results.
+- Interpret a natural Spanish/English reminder with structured AI, validate its original-capture Bogotá schedule, and save directly to Todoist Inbox. Task creation and verified notification delivery are separate results.
 - Preview one simple COP expense against existing accounts/categories/budgets; record only after an explicit confirmation bound to that frozen operation.
 - Authenticated Spanish Siri/Shortcuts, Watch dictation, and an iPhone review form.
 - Durable offline outboxes, cancellation tombstones, serialized delivery claims, and correlated terminal preview invalidation.
@@ -138,7 +138,7 @@ Client `allow_write` fields are never authority. Enabling a domain requires priv
 Still required before broader production writes:
 
 - review/merge and separately authorized backend rollout;
-- a reviewed Aura helper implementing the frozen date, official-list, create-only, and idempotency contracts;
+- a reviewed Aura grocery helper implementing the official-list, add-only and idempotency contracts; private server API credentials and a separately authorized Todoist reminder check;
 - durable HTTPS service and ledger/helper-state retention, backup, and compatible restore;
 - authorized signing and physical iPhone/Watch/Siri checks for this exact candidate;
 - actual reminder alarm readback and observed notification delivery on Jose's devices;

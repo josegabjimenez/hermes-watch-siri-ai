@@ -26,6 +26,9 @@ import sys
 import threading
 import time
 import unicodedata
+from contextlib import nullcontext
+
+import reminder_capture
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
@@ -133,6 +136,12 @@ class Config:
     write_domains: frozenset[str] = frozenset()
     aura_helper: Path | None = None
     expense_helper: Path | None = None
+    reminder_openai_key_file: Path | None = None
+    reminder_todoist_token_file: Path | None = None
+    reminder_provider: str = "openai"
+    reminder_model: str = "gpt-6-luna"
+    reminder_ai_timeout: float = 8.0
+    reminder_todoist_timeout: float = 5.0
 
 
 class WriteExecutionError(RuntimeError):
@@ -183,6 +192,7 @@ def init_db(path: Path) -> None:
         )
         conn.commit()
     path.chmod(0o600)
+    reminder_capture.init_db(path)
 
 
 def now_iso() -> str:
@@ -405,22 +415,13 @@ def plan_capture(payload: dict[str, Any]) -> dict[str, Any]:
         return base
 
     if domain == "aura.reminder_capture":
-        due = parse_spanish_due(text, parse_created_at(payload))
-        if due:
-            base["display_message"] = "Recordatorio dry-run ✅"
-            base["interpreted_due"] = due
-            base["plan"] = {
-                "side_effects": ["notion.task.plan_only", "google_calendar.plan_only"],
-                "would_write": False,
-                "notes": "Would create/update Notion Task first; Calendar is fail-soft.",
-            }
-        else:
-            base["display_message"] = "Tarea sin fecha · dry-run ✅"
-            base["plan"] = {
-                "side_effects": ["notion.task.plan_only"],
-                "would_write": False,
-                "notes": "No due date parsed; would create unscheduled Task or ask if date required.",
-            }
+        base["display_message"] = "Recordatorio pendiente · configuración de AI y Todoist requerida"
+        base["plan"] = {
+            "side_effects": ["todoist.task.plan_only"],
+            "would_write": False,
+            "notes": "Structured AI interpretation and deterministic Bogotá validation required before a direct Todoist Inbox write. No AI call or external write in dry-run.",
+        }
+        base["gates_missing"] = ["server reminder domain allowlist", "private OpenAI and Todoist server credential files"]
         return base
 
     if domain == "aura.grocery_capture":
@@ -1660,128 +1661,18 @@ def reject_live_reminder_without_write(planned: dict[str, Any], notes: str) -> d
 
 
 def execute_reminder_capture(
-    payload: dict[str, Any],
-    cfg: Config,
-    planned: dict[str, Any],
+    payload: dict[str, Any], cfg: Config, planned: dict[str, Any]
 ) -> dict[str, Any]:
-    # A live reminder surface can only create a new Task. Known query/mutation/
-    # finance/home language is rejected before the helper; every remaining
-    # non-create classification is rejected after side-effect-free preflight.
-    capture_text = str((payload.get("capture") or {}).get("text") or "").strip()
-    if reminder_text_is_blocked(capture_text):
-        return reject_live_reminder_without_write(
-            planned,
-            "Blocked query, mutation, finance, general-note, or home-action language before helper preflight.",
-        )
-    raw_created_at = payload.get("created_at")
+    # Credentials are an explicit server gate; desktop connector credentials
+    # never authorize this backend. There is no legacy helper fallback.
+    if cfg.reminder_openai_key_file is None or cfg.reminder_todoist_token_file is None:
+        return planned
     try:
-        created_at = datetime.fromisoformat(str(raw_created_at or "").replace("Z", "+00:00"))
-        if created_at.tzinfo is None:
-            raise ValueError("missing timezone")
-    except ValueError:
-        created_at = None
-    due = parse_spanish_due(capture_text, created_at.astimezone(BOGOTA)) if created_at else None
-    if due is None or not reminder_due_is_future(due):
-        planned.update(
-            status="needs_input", dry_run=False, write_committed=False,
-            display_message="Indica una fecha y hora futuras claras en Bogotá; no creé el recordatorio",
-            question="¿Cuándo? Por ejemplo: mañana a las 2 pm o en 20 minutos (Bogotá).",
-            gates_missing=[],
-        )
-        planned["plan"].update(would_write=False, side_effects=[], notes="Missing capture timestamp, ambiguous/unsupported schedule, or due already elapsed at dispatch. Relative time remains anchored to original capture.")
-        return planned
-    helper_text = capture_text
-    preflight = run_aura_helper(payload, cfg, dry_run=True, requested_due=due)
-    helper_intent = preflight.get("intent")
-    if should_add_reminder_route_context(capture_text, helper_intent):
-        # A dedicated Recordatorio surface commonly receives a bare action such
-        # as "Comprar medicamentos". Only a positive task-verb allowlist may
-        # add route context; arbitrary notes and cross-domain commands fail closed.
-        helper_text = f"recuérdame {capture_text}"
-        preflight = run_aura_helper(payload, cfg, dry_run=True, text_override=helper_text, requested_due=due)
-        helper_intent = preflight.get("intent")
-    if helper_intent not in REMINDER_HELPER_WRITE_INTENTS:
-        # This is a terminal, correlated no-write response to a live request.
-        # Keep it distinct from an unconfigured backend's dry-run plan so the
-        # client can safely stop retrying and show the rejection to the user.
-        return reject_live_reminder_without_write(
-            planned,
-            "Aura helper preflight did not classify a reminder/task creation.",
-        )
-    helper_due = preflight.get("interpreted_due")
-    if not isinstance(helper_due, dict) or any(helper_due.get(key) != due[key] for key in ("start", "timezone")):
-        planned.update(
-            status="needs_input", dry_run=False, write_committed=False,
-            display_message="La hora del recordatorio necesita verificación; no creé la tarea",
-            question="El adaptador debe confirmar la misma fecha y hora en Bogotá.",
-            gates_missing=["verified reminder helper schedule contract"],
-        )
-        planned["plan"].update(would_write=False, side_effects=[], notes="Helper preflight did not prove the exact requested Bogotá schedule.")
-        return planned
-
-    if not reminder_due_is_future(due):
-        planned.update(status="needs_input", dry_run=False, write_committed=False, question="La hora ya pasó. ¿Para cuándo lo programo en Bogotá?", display_message="La hora ya pasó · no creé el recordatorio", gates_missing=[])
-        planned["plan"].update(would_write=False, side_effects=[], notes="Bound reminder due elapsed during read-only helper preflight; no write dispatched.")
-        return planned
-    committed = run_aura_helper(payload, cfg, dry_run=False, text_override=helper_text, requested_due=due)
-    if committed.get("intent") != helper_intent or committed.get("intent") not in REMINDER_HELPER_WRITE_INTENTS:
-        raise WriteExecutionError("aura_helper_domain_mismatch")
-    committed_due = committed.get("interpreted_due")
-    if not isinstance(committed_due, dict) or any(committed_due.get(key) != due[key] for key in ("start", "timezone")):
-        raise WriteExecutionError("aura_helper_schedule_mismatch")
-    page_id = committed.get("page_id")
-    if not isinstance(page_id, str) or not page_id.strip():
-        raise WriteExecutionError("aura_helper_missing_external_id")
-
-    title = watch_safe_text(committed.get("title") or preflight.get("title"), "Tarea")
-    if helper_intent == "task_unscheduled":
-        display_message = f"Tarea guardada ✅ · {title} (sin fecha)"
-    elif helper_intent == "errand":
-        display_message = f"Recado guardado ✅ · {title}"
-    else:
-        display_message = f"Recordatorio guardado ✅ · {title}"
-
-    calendar_synced = committed.get("calendar_synced")
-    calendar_sync_pending = committed.get("calendar_sync_pending")
-    if calendar_sync_pending is True:
-        display_message += " · Calendar pendiente"
-    elif calendar_synced is False:
-        display_message += " · Calendar no sincronizado"
-
-    external_ids = {"notion_page_id": page_id.strip()}
-    google_event_id = committed.get("google_event_id")
-    if isinstance(google_event_id, str) and google_event_id.strip():
-        external_ids["google_event_id"] = google_event_id.strip()
-
-    side_effects = ["notion.task.write"]
-    if helper_intent == "reminder":
-        side_effects.append("google_calendar.best_effort")
-    display_message += f" · {due['display']} · alertas pendientes de verificar"
-    response: dict[str, Any] = {
-        "status": "committed",
-        "dry_run": False,
-        "write_committed": True,
-        "request_id": str(payload.get("request_id") or ""),
-        "domain": "aura.reminder_capture",
-        "display_message": display_message,
-        "question": None,
-        "duplicate": bool(committed.get("duplicate", False)),
-        "interpreted_due": due,
-        "notification_verified": False,
-        "delivery_status": "pending_verification",
-        "plan": {
-            "side_effects": side_effects,
-            "would_write": True,
-            "notes": "Notion Task committed; Google Calendar is best-effort and fail-soft.",
-        },
-        "external_ids": external_ids,
-        "gates_missing": [],
-    }
-    if isinstance(calendar_synced, bool):
-        response["calendar_synced"] = calendar_synced
-    if isinstance(calendar_sync_pending, bool):
-        response["calendar_sync_pending"] = calendar_sync_pending
-    return response
+        return reminder_capture.execute(payload, cfg, now=reminder_dispatch_now)
+    except reminder_capture.ReminderConflict:
+        raise WriteExecutionError("request_id_conflict") from None
+    except reminder_capture.ReminderRetryable:
+        raise WriteExecutionError("reminder_pending_retry") from None
 
 
 def ledger_status_for_response(payload: dict[str, Any], response: dict[str, Any]) -> str:
@@ -1910,12 +1801,11 @@ class MobileCaptureHandler(BaseHTTPRequestHandler):
         payload_hash = hashlib.sha256(raw).hexdigest()
         domain, _, _ = canonical_domain(payload)
         try:
-            # One process serializes request/operation claims, but no SQLite
-            # transaction is held across a helper or network call.  The request
-            # claim is durable first. Expenses additionally persist their own
-            # pre-POST operation claim. Aura helpers must independently honor
-            # the request-ID contract across a crash or lost acknowledgment.
-            with CAPTURE_EXECUTION_LOCK:
+            # Reminder has a durable operation ledger and a per-request OS lock;
+            # slow model/network calls never hold the grocery/expense global lock.
+            # No SQLite transaction is held across any network or helper call.
+            reminder_route = exact_write_route(payload) == ("aura", "reminder", "aura.reminder_capture")
+            with nullcontext() if reminder_route else CAPTURE_EXECUTION_LOCK:
                 init_db(self.cfg.ledger_path)
                 with sqlite3.connect(self.cfg.ledger_path, timeout=65.0) as conn:
                     conn.execute("BEGIN IMMEDIATE")
@@ -1982,7 +1872,7 @@ class MobileCaptureHandler(BaseHTTPRequestHandler):
             # existing request-id idempotency contracts.
             with sqlite3.connect(self.cfg.ledger_path, timeout=65.0) as conn:
                 conn.execute(
-                    "DELETE FROM mobile_capture_ledger WHERE request_id = ? AND payload_hash = ? AND status = 'processing'",
+                    "DELETE FROM mobile_capture_ledger WHERE request_id = ? AND payload_hash = ? AND status = 'processing' AND domain != 'aura.reminder_capture'",
                     (request_id, payload_hash),
                 )
                 conn.commit()
@@ -2027,7 +1917,16 @@ def parse_args() -> argparse.Namespace:
             )
         ),
     )
-    return parser.parse_args()
+    parser.add_argument("--reminder-openai-key-file", type=Path, default=os.getenv("MOBILE_CAPTURE_REMINDER_OPENAI_KEY_FILE"))
+    parser.add_argument("--reminder-todoist-token-file", type=Path, default=os.getenv("MOBILE_CAPTURE_REMINDER_TODOIST_TOKEN_FILE"))
+    parser.add_argument("--reminder-provider", default=os.getenv("MOBILE_CAPTURE_REMINDER_PROVIDER", "openai"))
+    parser.add_argument("--reminder-model", default=os.getenv("MOBILE_CAPTURE_REMINDER_MODEL", "gpt-6-luna"))
+    parser.add_argument("--reminder-ai-timeout", type=float, default=float(os.getenv("MOBILE_CAPTURE_REMINDER_AI_TIMEOUT", "8")))
+    parser.add_argument("--reminder-todoist-timeout", type=float, default=float(os.getenv("MOBILE_CAPTURE_REMINDER_TODOIST_TIMEOUT", "5")))
+    args = parser.parse_args()
+    if not 0.1 <= args.reminder_ai_timeout <= 30 or not 0.1 <= args.reminder_todoist_timeout <= 15:
+        parser.error("Reminder timeouts must be bounded: AI 0.1–30s; Todoist 0.1–15s")
+    return args
 
 
 if __name__ == "__main__":
@@ -2043,5 +1942,11 @@ if __name__ == "__main__":
             write_domains=domains,
             aura_helper=args.aura_helper,
             expense_helper=args.expense_helper,
+            reminder_openai_key_file=args.reminder_openai_key_file,
+            reminder_todoist_token_file=args.reminder_todoist_token_file,
+            reminder_provider=args.reminder_provider,
+            reminder_model=args.reminder_model,
+            reminder_ai_timeout=args.reminder_ai_timeout,
+            reminder_todoist_timeout=args.reminder_todoist_timeout,
         )
     )

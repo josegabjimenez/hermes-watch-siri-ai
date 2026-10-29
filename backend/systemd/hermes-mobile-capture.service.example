@@ -27,11 +27,14 @@ RestartSec=5
 TimeoutStopSec=15
 UMask=0077
 
-# The SQLite file contains request and expense-operation claims. It must
-# survive crashes/restarts: expense status=writing/uncertain suppresses reposts.
+# The SQLite file contains request, expense and reminder-operation claims.
+# Preserve the database and reminder-lock directory across restarts. Reminder
+# plans, account binding, command UUIDs and task receipts must never be reset.
 # The ledger and Aura helper state are the only writable service locations.
-# The external Aura helper is not bundled. Review its source, schedule contract,
-# request-ID replay, and state path here before enabling either Aura domain.
+# The external Aura grocery helper is not bundled. Review its official-list,
+# request-ID replay and state contract before enabling groceries. Reminder uses
+# the bundled direct adapter; see docs/REMINDER_AI_TODOIST.md for private key
+# files, bounded model configuration and separate rollout/device gates.
 StateDirectory=hermes-mobile-capture
 StateDirectoryMode=0700
 ReadWritePaths=/var/lib/hermes-mobile-capture

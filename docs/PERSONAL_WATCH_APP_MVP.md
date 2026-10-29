@@ -9,7 +9,7 @@ Source task: existing W-R02 (planning record kept private). Jose approved implem
 | Action | Behavior | Evidence required for real use |
 | --- | --- | --- |
 | Mercado | Add to the existing official list. A committed helper result is required before claiming success. | Reviewed exact Aura helper, official-list identity, normalized matching/pagination, concurrent duplicates, and lost-ACK recovery without changing existing item state. |
-| Recordatorio | Create only the requested new reminder with an unambiguous future Bogotá date/time. Unsupported/ambiguous schedules ask for clarification before writing. | Reviewed exact helper and Task readback, frozen date agreement, plus an actual alarm and device notification as described below. |
+| Recordatorio | Create only the requested new reminder with an unambiguous future Bogotá date/time. Unsupported/ambiguous schedules ask for clarification before writing. | Structured AI proposal, deterministic date validation, durable Todoist command and exact Inbox task readback; default alert configuration and phone notification require separate verification. |
 | Gasto | One COP withdrawal from an existing active asset account. Preview the frozen amount, account, category and budget; require a separate explicit confirmation. | Existing catalogue/rules, COP agreement, durable operation ledger and external-ID readback. A live financial check needs separate authorization. |
 
 General capture/Capturar and Argos dispatch are excluded. Old protocol values/history remain readable; the old general intent is disabled and is not advertised. There are no favorite actions. Cards, installments, transfers, incomes, new accounts/categories/budgets, and modification of preexisting reminders are excluded.
@@ -26,19 +26,11 @@ Live Watch traffic requires direct HTTPS. The existing phone relay accepts dry-r
 
 ## Reminder alert handoff
 
-The external Aura helper is **not included or verified** in this repository. The BFF passes `text`, `request_id`, `created_at`, `timezone`, and `interpreted_due` to it. Both side-effect-free preflight and committed response must attest the same `interpreted_due.start` and `America/Bogota`. The helper must honor the supplied instant rather than reparsing relative time on retry. It must use durable request identity and create-only Task authority. Existing `--no-notify` is preserved because its exact behavior is unknown without the helper source.
+The Reminder action uses the existing standalone BFF with a schema-only AI interpreter and a direct Todoist Inbox adapter. The AI proposes a task title and schedule; server code alone permits the destination, action and future Bogotá instant. The original capture timestamp anchors relative schedules. A validated interpretation and stable Sync command UUID are committed before the external write, then reused after retries or crashes. There is no Reminder fallback to the Aura helper, Notion, Calendar or Slack.
 
-A Notion Task and a Calendar event ID do not prove that an alert will reach Jose. Current responses preserve `interpreted_due`, `notification_verified=false`, and `delivery_status=pending_verification`; the display message states Bogotá time and that alerts need verification. No client schedules a local alert or claims delivery.
+Only exact task readback establishes `write_committed=true`. Responses include `interpreted_due`, `external_ids.todoist_task_id`, `notification_verified=false`, and `delivery_status=pending_verification`. `auto_reminder=true` requests Todoist's user-default alert for the timed task; it does not establish the account's alert configuration or device receipt. Deadlines, recurring tasks and custom alerts remain unsupported in this increment. No existing reminders are migrated.
 
-The smallest real-use path is to verify the existing Calendar integration, rather than add another notification transport:
-
-1. Obtain and review the exact Aura helper source/version and required private deployment configuration. Exercise it against fake Notion/Calendar services, including pagination, duplicate requests, lost ACK/restart, and zero modifications to existing tasks.
-2. Confirm the selected calendar is synced to Jose's iPhone and that Calendar notifications and Watch forwarding are enabled as desired. Keep the selected calendar/private IDs outside this public repository.
-3. Require event readback with the intended start/`America/Bogota` and an explicit alarm: `reminders.useDefault=false`, `overrides=[{"method":"popup","minutes":0}]`. Read back the newly created Task separately. Event creation or API push subscriptions alone are insufficient.
-4. With a separately authorized device/live reminder check, create one short-future reminder and observe its alert on the paired devices. Record the observed device/lock/connectivity conditions without device identifiers. A simulator result cannot establish this gate.
-5. If Calendar creation/alarm proof fails after the Task commits, preserve the Task and report that the alert is not scheduled/verified. Replay must not create another Task. Agree on local notifications only if this existing transport cannot satisfy the handoff.
-
-References: [Google Calendar event reminders](https://developers.google.com/workspace/calendar/api/concepts/reminders), [Apple Watch notification behavior](https://developer.apple.com/documentation/watchos-apps/enabling-and-receiving-notifications).
+See [the operator guide](REMINDER_AI_TODOIST.md) for private server configuration, replay/recovery behavior, offline verification and the remaining secure-authorization, deployment, live task and phone-alert gates. Grocery retains the existing exact official-list helper; the confirmed COP expense flow remains separate.
 
 ## Build and physical-device handoff
 
